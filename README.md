@@ -15,6 +15,35 @@ SCORE  VEHICLE                               MILES       BID   MAX BID     ROOM 
    13  2020 Volkswagen Jetta GLI            43,700     9,200    10,920    1,720  0.15
 ```
 
+## Getting listings in
+
+There are no run lists any more — the marketplaces are live platforms and
+nothing exports. So the input is a **screenshot of the page you're already
+looking at**. Everything the scorer needs is rendered there: VIN, miles,
+grade, announcements, the damage table, the bid or Buy Now or published
+reserve, and the AccuTrade sidebar with MMR, target auction, instant offer
+and retail.
+
+```bash
+# Snap the vehicle page and the AccuTrade panel, then:
+python -m auctionscan grab adesa1.png adesa2.png --store watchlist.csv
+
+# Score everything you've collected
+python -m auctionscan scan --csv watchlist.csv --config config.yaml --valuation csv
+```
+
+Several shots of one car merge into a single listing. The watchlist is keyed
+by VIN, so re-grabbing a car you already have updates its price instead of
+duplicating it. Roughly $0.05–0.15 per car in API cost depending on effort
+and image size; `--effort medium` roughly halves it.
+
+This touches nothing but a picture you chose to take — no marketplace API, no
+automated access, nothing near your dealer accounts.
+
+A VIN that fails its check digit is reported loudly rather than dropped,
+because in this workflow a bad checksum almost always means one character was
+misread, and silently skipping it would hide a real car from your list.
+
 ## Quick start
 
 ```bash
@@ -285,7 +314,7 @@ photos, and scoring rules you can actually inspect and change.
 python -m pytest tests/ -q
 ```
 
-66 tests covering the money math, the buy-box rules, announcement handling,
+76 tests covering the money math, the buy-box rules, announcement handling,
 powertrain reserve bracketing, capability arbitrage, exit selection, sale-format
 and acquisition-price handling, and the VIN decode. Network calls are stubbed,
 so they run offline. The powertrain suite is built on the real Model Y listing
@@ -305,7 +334,7 @@ auctionscan/
   report.py       Console, CSV, HTML output
   sources/        Where listings come from (CSV, Manheim, ACV)
   enrich/         VIN decode, valuation, history
-  ai/             Claude condition analysis
+  ai/             Screenshot extraction + Claude condition analysis
 ```
 
 ## Status
