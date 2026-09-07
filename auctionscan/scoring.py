@@ -17,7 +17,10 @@ to bid at all when the car is outside the buy box.
 from __future__ import annotations
 
 from .config import Config
-from .models import ConditionAssessment, Deal, HistoryReport, Listing, TitleBrand, Valuation
+from .models import (
+    ConditionAssessment, Deal, HistoryReport, Listing, TitleBrand, Valuation, VinDecode,
+)
+from .risk import estimate_reserve, flagged_problems, is_as_is
 
 # How much of book a car loses in the wholesale lane for history damage.
 # These are haircuts on wholesale value, drawn from how announced cars
@@ -221,11 +224,13 @@ def score_listing(
     condition: ConditionAssessment | None = None,
     cfg: Config | None = None,
     transport_miles: int | None = None,
+    vin_decode: VinDecode | None = None,
 ) -> Deal:
     """Score one listing. Returns a Deal with max_bid, gross and risk flags."""
     cfg = cfg or Config()
     deal = Deal(
-        listing=listing, valuation=valuation, history=history, condition=condition
+        listing=listing, valuation=valuation, history=history,
+        condition=condition, vin_decode=vin_decode,
     )
 
     if valuation is None or not valuation.has_value:
@@ -240,10 +245,18 @@ def score_listing(
     transport = cfg.costs.transport_cost(transport_miles)
     fees = cfg.costs.buy_fee + cfg.costs.sell_fee
     holding = cfg.costs.holding_cost()
-    deal.total_costs = recon + transport + fees + holding
+
+    # Every book value assumes the car runs. If it doesn't, price the unknown.
+    reserve = estimate_reserve(listing, vin_decode)
+    deal.powertrain_reserve = reserve
+    deal.reasoning.extend(reserve.basis)
+
+    deal.total_costs = recon + transport + fees + holding + reserve.high
+    optimistic_costs = recon + transport + fees + holding + reserve.low
 
     required_gross = cfg.buy_box.required_gross(value)
     deal.max_bid = value - deal.total_costs - required_gross
+    deal.max_bid_optimistic = value - optimistic_costs - required_gross
 
     bid = listing.current_bid or 0.0
     deal.projected_gross = value - bid - deal.total_costs
@@ -251,15 +264,46 @@ def score_listing(
     deal.reasoning.append(
         f"Adjusted wholesale ${value:,.0f} - recon ${recon:,.0f} "
         f"- transport ${transport:,.0f} - fees ${fees:,.0f} "
-        f"- holding ${holding:,.0f} - target gross ${required_gross:,.0f} "
-        f"= max bid ${deal.max_bid:,.0f}"
+        f"- holding ${holding:,.0f}"
+        + (f" - powertrain reserve ${reserve.high:,.0f}" if reserve.high else "")
+        + f" - target gross ${required_gross:,.0f} = max bid ${deal.max_bid:,.0f}"
     )
 
+    # A reserve you cannot size is a bet, not a buy. Say so out loud.
+    if reserve.unverified and reserve.spread > cfg.buy_box.max_risk_spread:
+        deal.speculative = True
+        deal.reasoning.append(
+            f"UNVERIFIED FAILURE: outcome swings ${reserve.low:,.0f} to "
+            f"${reserve.high:,.0f}. Max bid is ${deal.max_bid:,.0f} if it's the "
+            f"expensive one, ${deal.max_bid_optimistic:,.0f} if it's the cheap "
+            f"one. Diagnose before bidding, or bid the low number."
+        )
+
     deal.risk_flags = check_buy_box(listing, value, history, recon, cfg)
+
     if condition:
         deal.risk_flags.extend(condition.red_flags)
 
+    if reserve.unverified and not cfg.buy_box.allow_inoperable:
+        deal.risk_flags.append("Listed INOP / not drivable")
+    if reserve.high > cfg.buy_box.max_powertrain_reserve:
+        deal.risk_flags.append(
+            f"Powertrain exposure ${reserve.high:,.0f} over "
+            f"${cfg.buy_box.max_powertrain_reserve:,.0f} cap"
+        )
+    if is_as_is(listing) and reserve.unverified and not cfg.buy_box.allow_as_is_inop:
+        deal.risk_flags.append("AS-IS with an undiagnosed no-start: no arbitration")
+
     disqualifying = list(deal.risk_flags)
+
+    # Advisory, not disqualifying on its own -- the INOP flag above already
+    # gates the car. This tells you *why* the no-start is worth worrying about.
+    problems = flagged_problems(valuation.common_problems)
+    if problems and reserve.unverified:
+        deal.risk_flags.append(
+            "Known failure modes for this VIN line up with the no-start: "
+            + "; ".join(problems)
+        )
     for ann in listing.announcements:
         permission = _announcement_permission(ann)
         if permission is None:

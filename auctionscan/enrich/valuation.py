@@ -80,9 +80,19 @@ class MmrValuation(ValuationProvider):
 
 
 class AccuTradeValuation(ValuationProvider):
-    """AccuTrade Perseus API (Cars Commerce).
+    """AccuTrade (Cars Commerce) -- the one integration that covers everything.
 
-    Takes VIN + mileage + condition and returns a point estimate plus a range.
+    If you already run AccuTrade with MMR and Carfax bundled in, this is the
+    only valuation integration you need: one call returns the Manheim MMR, the
+    target auction number, the instant offer, Cars.com median retail, the
+    odometer adjustment and the known failure modes for the VIN. That replaces
+    three separate contracts.
+
+    The VIN-dow browser extension shows exactly this data on the auction page.
+    The Perseus API is the sanctioned way to get the same payload
+    programmatically -- ask your Cars Commerce rep for a key rather than
+    automating the extension.
+
     Set ACCUTRADE_API_KEY. Docs: https://docs.accu-trade.com
     """
 
@@ -119,13 +129,27 @@ class AccuTradeValuation(ValuationProvider):
         except (requests.RequestException, ValueError) as exc:
             return Valuation(source=self.name, notes=f"AccuTrade request failed: {exc}")
 
-        # CONFIRM against the live spec.
+        # CONFIRM key names against the live spec; the panel labels they map to
+        # are the ones shown in the VIN-dow sidebar.
+        mmr = data.get("manheim") or data.get("mmr")                 # "Manheim"
+        target = data.get("targetAuction")                           # "Target Auction"
+        instant = data.get("instantOffer")                           # "Instant Offer"
+        retail_median = data.get("medianRetail")                     # "Cars.com Median Retail"
+
         return Valuation(
             source=self.name,
-            wholesale=data.get("wholesale") or data.get("value"),
-            wholesale_low=data.get("lowerEstimate"),
-            wholesale_high=data.get("upperEstimate"),
-            retail=data.get("retail"),
+            # MMR is what the dealer you are flipping to will look up, so it is
+            # the benchmark. Fall back to the target auction number.
+            wholesale=mmr or target,
+            wholesale_low=data.get("lowerEstimate") or instant,
+            wholesale_high=data.get("upperEstimate") or target,
+            retail=retail_median or data.get("retail"),
+            mmr=mmr,
+            target_auction=target,
+            instant_offer=instant,
+            retail_median=retail_median,
+            odometer_adjustment=data.get("odometerAdjustment"),
+            common_problems=data.get("commonProblems", []) or [],
             adjusted_for_mileage=listing.odometer is not None,
             adjusted_for_condition=listing.grade is not None,
             as_of=datetime.now(timezone.utc),
@@ -221,3 +245,69 @@ class HeuristicValuation(ValuationProvider):
         if listing.year and listing.year >= 2018:
             return SEGMENT_BASE["midsize"]
         return SEGMENT_BASE["compact"]
+
+
+class CsvValuation(ValuationProvider):
+    """Values keyed in by hand from the AccuTrade VIN-dow panel.
+
+    The pragmatic option, and the one to start with. If you already have
+    AccuTrade with MMR and Carfax bundled, you can read those numbers off the
+    auction page today and drop them in a spreadsheet column -- no API key, no
+    contract, no terms-of-service question, and the scoring is identical to
+    what it will be once Perseus is wired up. Swap in AccuTradeValuation later
+    and nothing downstream changes.
+
+    Reads MMR / Target Auction / Instant Offer / Median Retail / Common
+    Problems from the same CSV row as the listing.
+    """
+
+    name = "csv"
+
+    def value(self, listing: Listing) -> Valuation:
+        row = listing.raw if isinstance(listing.raw, dict) else {}
+        lookup = {str(k).strip().lower(): v for k, v in row.items()}
+
+        def num(*names: str) -> float | None:
+            for name in names:
+                raw = lookup.get(name)
+                if raw:
+                    cleaned = "".join(c for c in str(raw) if c.isdigit() or c == ".")
+                    if cleaned:
+                        try:
+                            return float(cleaned)
+                        except ValueError:
+                            continue
+            return None
+
+        mmr = num("mmr", "manheim", "manheim mmr")
+        target = num("target auction", "target", "target wholesale")
+        instant = num("instant offer", "ico", "instant cash offer")
+        retail = num("median retail", "retail median", "cars.com median retail")
+        problems_raw = str(
+            lookup.get("common problems") or lookup.get("known problems") or ""
+        )
+        problems = [p.strip() for p in problems_raw.replace("|", ";").split(";") if p.strip()]
+
+        if not (mmr or target):
+            return Valuation(
+                source=self.name,
+                notes="No MMR or target auction value in the row",
+            )
+
+        return Valuation(
+            source="accutrade",   # same provenance, keyed in by hand
+            wholesale=mmr or target,
+            wholesale_low=instant,
+            wholesale_high=target,
+            retail=retail,
+            mmr=mmr,
+            target_auction=target,
+            instant_offer=instant,
+            retail_median=retail,
+            common_problems=problems,
+            # AccuTrade applies its own odometer adjustment before it shows you
+            # these numbers, so don't apply ours on top.
+            adjusted_for_mileage=True,
+            adjusted_for_condition=False,
+            as_of=datetime.now(timezone.utc),
+        )

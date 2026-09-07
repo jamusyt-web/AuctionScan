@@ -64,6 +64,14 @@ class BuyBox:
     min_grade: float = 3.0               # AutoGrade floor
     max_recon: float = 2_500.0
 
+    # Drivability. An INOP car with no diagnosis is a bet on which repair it
+    # needs; allow_inoperable opts into taking those bets at all.
+    allow_inoperable: bool = False
+    allow_as_is_inop: bool = False       # INOP *and* no arbitration rights
+    max_powertrain_reserve: float = 4_000.0
+    # How far the best and worst case can diverge before it stops being a buy.
+    max_risk_spread: float = 3_000.0
+
     def required_gross(self, wholesale_value: float) -> float:
         return max(self.target_gross, wholesale_value * self.target_gross_pct)
 

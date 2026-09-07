@@ -13,13 +13,16 @@ from pathlib import Path
 
 from .config import Config
 from .enrich.history import CarfaxHistory, NmvtisHistory, NullHistory
-from .enrich.valuation import AccuTradeValuation, HeuristicValuation, MmrValuation
+from .enrich.valuation import (
+    AccuTradeValuation, CsvValuation, HeuristicValuation, MmrValuation,
+)
 from .enrich.vin import decode_vin
 from .pipeline import run
 from .report import to_console, to_csv, to_html
 from .sources.csv_source import CsvSource
 
 VALUATIONS = {
+    "csv": CsvValuation,
     "heuristic": HeuristicValuation,
     "mmr": MmrValuation,
     "accutrade": AccuTradeValuation,

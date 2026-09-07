@@ -95,8 +95,8 @@ def run(
             condition=assessments.get(listing.vin),
             cfg=cfg,
             transport_miles=transport_miles,
+            vin_decode=decoded,
         )
-        deal.vin_decode = decoded
         deals.append(deal)
 
     return rank(deals), dropped

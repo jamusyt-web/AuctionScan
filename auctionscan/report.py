@@ -28,6 +28,12 @@ def to_console(deals: list[Deal], limit: int = 25) -> str:
             f"{deal.headroom:>8,.0f} "
             f"{deal.confidence:>5.2f}"
         )
+        if deal.speculative:
+            lines.append(
+                f"       ~ SPECULATIVE: ${deal.max_bid:,.0f} worst case / "
+                f"${deal.max_bid_optimistic:,.0f} best case "
+                f"(${deal.risk_spread:,.0f} swing) - diagnose before bidding"
+            )
         if deal.risk_flags:
             lines.append(f"       ! {'; '.join(deal.risk_flags[:3])}")
     if len(deals) > limit:
@@ -38,9 +44,11 @@ def to_console(deals: list[Deal], limit: int = 25) -> str:
 def to_csv(deals: list[Deal], path: str | Path) -> None:
     fields = [
         "score", "confidence", "vin", "year", "make", "model", "trim", "odometer",
-        "grade", "current_bid", "max_bid", "headroom", "projected_gross",
-        "total_costs", "wholesale_source", "wholesale_value", "history_source",
-        "accidents", "recon_estimate", "risk_flags", "location", "sale_date", "url",
+        "grade", "current_bid", "max_bid", "max_bid_optimistic", "risk_spread",
+        "speculative", "headroom", "projected_gross", "total_costs",
+        "wholesale_source", "wholesale_value", "mmr", "instant_offer",
+        "powertrain_reserve", "history_source", "accidents", "recon_estimate",
+        "risk_flags", "location", "sale_date", "url",
     ]
     with Path(path).open("w", newline="", encoding="utf-8") as fh:
         writer = csv.DictWriter(fh, fieldnames=fields)
@@ -59,6 +67,19 @@ def to_csv(deals: list[Deal], path: str | Path) -> None:
                 "grade": l.grade if l.grade is not None else "",
                 "current_bid": f"{l.current_bid:.0f}" if l.current_bid else "",
                 "max_bid": f"{d.max_bid:.0f}",
+                "max_bid_optimistic": f"{d.max_bid_optimistic:.0f}",
+                "risk_spread": f"{d.risk_spread:.0f}",
+                "speculative": "yes" if d.speculative else "",
+                "mmr": (
+                    f"{d.valuation.mmr:.0f}" if d.valuation and d.valuation.mmr else ""
+                ),
+                "instant_offer": (
+                    f"{d.valuation.instant_offer:.0f}"
+                    if d.valuation and d.valuation.instant_offer else ""
+                ),
+                "powertrain_reserve": (
+                    f"{d.powertrain_reserve.high:.0f}" if d.powertrain_reserve else ""
+                ),
                 "headroom": f"{d.headroom:.0f}",
                 "projected_gross": f"{d.projected_gross:.0f}",
                 "total_costs": f"{d.total_costs:.0f}",
@@ -102,6 +123,10 @@ HTML_HEAD = """<title>AuctionScan Results</title>
   .nums div { font-size:13px; } .nums b { display:block; font-size:16px; font-weight:600; }
   .good { color:var(--good); } .warn { color:var(--warn); } .bad { color:var(--bad); }
   .flags { margin-top:10px; font-size:13px; color:var(--bad); }
+  .spec { margin-top:10px; padding:9px 11px; border-radius:7px; font-size:13px;
+          background:color-mix(in srgb, var(--warn) 12%, transparent);
+          border:1px solid color-mix(in srgb, var(--warn) 35%, transparent);
+          color:var(--warn); }
   .why { margin-top:10px; font-size:12px; color:var(--muted); }
   .why div { margin-top:2px; }
 </style>
@@ -119,6 +144,13 @@ def to_html(deals: list[Deal], path: str | Path, title: str = "AuctionScan Resul
         flags = (
             f'<div class="flags">! {esc("; ".join(d.risk_flags))}</div>'
             if d.risk_flags else ""
+        )
+        spec = (
+            f'<div class="spec"><b>Speculative</b> &mdash; '
+            f'${d.max_bid:,.0f} if the failure is the expensive one, '
+            f'${d.max_bid_optimistic:,.0f} if it is the cheap one. '
+            f'A ${d.risk_spread:,.0f} swing on an undiagnosed car.</div>'
+            if d.speculative else ""
         )
         why = "".join(f"<div>{esc(r)}</div>" for r in d.reasoning)
         cards.append(f"""
@@ -139,6 +171,7 @@ def to_html(deals: list[Deal], path: str | Path, title: str = "AuctionScan Resul
       <div>Costs<b>${d.total_costs:,.0f}</b></div>
       <div>Gross at bid<b>${d.projected_gross:,.0f}</b></div>
     </div>
+    {spec}
     {flags}
     <div class="why">{why}</div>
   </div>""")

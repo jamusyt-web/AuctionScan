@@ -35,6 +35,13 @@ ALIASES = {
     "photo_urls": ("photos", "photo urls", "images", "image urls"),
     "seller_type": ("seller type", "seller", "consignor type"),
     "url": ("url", "link", "listing url"),
+    "mechanical": ("mechanical", "mechanical notes", "drivability", "runs"),
+    # AccuTrade VIN-dow numbers, if you're keying them in by hand.
+    "mmr": ("mmr", "manheim", "manheim mmr"),
+    "target_auction": ("target auction", "target", "target wholesale"),
+    "instant_offer": ("instant offer", "ico", "instant cash offer"),
+    "median_retail": ("median retail", "retail median", "cars.com median retail"),
+    "common_problems": ("common problems", "known problems", "problems"),
 }
 
 
@@ -116,6 +123,14 @@ class CsvSource(ListingSource):
                     p.strip() for p in (get("photo_urls") or "").split(";") if p.strip()
                 ]
 
+                mechanical = (get("mechanical") or "").strip()
+                blob = f"{mechanical} {' '.join(announcements)}".lower()
+                drivable = False if any(
+                    k in blob for k in ("inop", "not drivable", "no start",
+                                        "won't start", "non-runner")
+                ) else None
+                as_is = any(k in blob for k in ("as-is", "as is", "no arbitration"))
+
                 yield Listing(
                     source=self.source_label,
                     listing_id=(get("listing_id") or f"row-{i + 2}").strip(),
@@ -135,5 +150,7 @@ class CsvSource(ListingSource):
                     photo_urls=photos,
                     seller_type=(get("seller_type") or "").strip(),
                     url=(get("url") or "").strip(),
+                    drivable=drivable,
+                    as_is=as_is,
                     raw=dict(row),
                 )

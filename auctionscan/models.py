@@ -11,7 +11,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from .risk import PowertrainReserve
 
 
 class TitleBrand(str, Enum):
@@ -52,6 +55,11 @@ class Listing:
     condition_report_text: str = ""
     photo_urls: list[str] = field(default_factory=list)
     seller_type: str = ""            # "off-lease", "rental", "dealer", "repo"
+
+    # Drivability. None means the listing didn't say, which is not the same as
+    # "yes" -- an undisclosed INOP is the expensive kind.
+    drivable: bool | None = None
+    as_is: bool = False              # no arbitration rights
 
     url: str = ""
     raw: dict[str, Any] = field(default_factory=dict)
@@ -96,6 +104,18 @@ class Valuation:
     wholesale_low: float | None = None
     wholesale_high: float | None = None
     retail: float | None = None
+
+    # AccuTrade returns several distinct numbers and they are not
+    # interchangeable. mmr is the wholesale benchmark another dealer checks;
+    # target_auction is what AccuTrade expects it to bring in the lane;
+    # instant_offer is a guaranteed cash bid, so it acts as a floor -- but
+    # only on a running car.
+    mmr: float | None = None
+    target_auction: float | None = None
+    instant_offer: float | None = None
+    retail_median: float | None = None
+    odometer_adjustment: float | None = None
+    common_problems: list[str] = field(default_factory=list)
     adjusted_for_mileage: bool = False
     adjusted_for_condition: bool = False
     as_of: datetime | None = None
@@ -166,7 +186,11 @@ class Deal:
     history: HistoryReport | None = None
     condition: ConditionAssessment | None = None
 
-    max_bid: float = 0.0             # walk-away number
+    powertrain_reserve: "PowertrainReserve | None" = None
+
+    max_bid: float = 0.0             # walk-away number (worst case priced in)
+    max_bid_optimistic: float = 0.0  # if the cheap explanation is the right one
+    speculative: bool = False        # the bracket is too wide to call it a buy
     projected_gross: float = 0.0     # at current bid
     total_costs: float = 0.0         # recon + transport + fees
     score: float = 0.0               # 0-100, higher is better
@@ -179,3 +203,8 @@ class Deal:
         """Dollars between the current bid and our walk-away number."""
         bid = self.listing.current_bid or 0.0
         return self.max_bid - bid
+
+    @property
+    def risk_spread(self) -> float:
+        """How much the answer moves between the best and worst explanation."""
+        return self.max_bid_optimistic - self.max_bid

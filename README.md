@@ -60,22 +60,30 @@ lane and your retail channel are not the average.
 
 ## Data sources
 
-The tool is built around adapters so you can start free and add paid sources as
-they earn their keep.
+**If you already run AccuTrade with MMR and Carfax bundled in, AccuTrade is the
+only valuation integration you need.** One call returns the Manheim MMR, the
+target auction number, the instant offer, Cars.com median retail, the odometer
+adjustment and the known failure modes for the VIN — replacing three separate
+contracts. The VIN-dow browser extension shows exactly that payload on the
+auction page; the Perseus API is the sanctioned way to get it programmatically.
 
 | Source | What it gives you | Access |
 |---|---|---|
-| **NHTSA vPIC** | Factory build data, VIN validation | Free, no key. Works now. |
-| **CSV / run list** | The listings themselves | Free. Export or email from any auction. |
-| **NMVTIS** | Federal title brands, theft, total loss | ~$1–3/VIN via an authorized provider. Cheap enough to run on every car. |
-| **Manheim MMR** | The wholesale benchmark | Cox Automotive API Storefront. Requires onboarding. |
-| **AccuTrade** | VIN + mileage + condition valuation | Cars Commerce partner API key. |
-| **Carfax** | Full accident/service history | Negotiated agreement only — no self-serve API. |
-| **Claude** | Recon estimate from the CR and photos | Anthropic API key. |
+| **CSV + VIN-dow numbers** | Everything below, keyed in by hand | Free, works today. `--valuation csv` |
+| **AccuTrade (Perseus)** | MMR, target auction, instant offer, retail, common problems | Cars Commerce API key |
+| **NHTSA vPIC** | Factory build data, VIN validation | Free, no key |
+| **Carfax** | Accident/service history | Bundled with AccuTrade, or a negotiated data agreement for API access |
+| **NMVTIS** | Federal title brands, theft, total loss | ~$1–3/VIN — only worth it if you *don't* have unlimited Carfax |
+| **Claude** | Recon estimate from the CR and photos | Anthropic API key |
 
-Screen on the cheap sources, then spend on the expensive ones only for the
-short list you're actually going to bid on. Running a full Carfax on all 400
-cars in a sale is how this gets expensive fast.
+Start with `--valuation csv`: read the VIN-dow numbers off the auction page
+into a spreadsheet column. No API key, no contract, and the scoring is
+identical to what it will be once Perseus is wired up. Swapping in
+`--valuation accutrade` later changes nothing downstream.
+
+Note that unlimited Carfax covers *viewing* reports. Pulling them
+programmatically is a separate data agreement — which is the one thing worth
+asking Carfax for.
 
 ```bash
 # Once you have credentials:
@@ -93,6 +101,39 @@ The API adapters in `auctionscan/sources/api_adapters.py`,
 written, but the response field names are marked `CONFIRM` — those specs sit
 behind a login and change, so check them against a real payload the first time
 you connect.
+
+## Drivability and powertrain risk
+
+Every valuation you can buy — MMR, AccuTrade target auction, ADESA CLEAR —
+prices a vehicle that **runs**. None of them price an INOP car, because none of
+them know why it doesn't run. This is where the tool earns its keep.
+
+When a listing is announced INOP or not drivable, the tool stops estimating
+cosmetic recon and starts bracketing the unknown:
+
+- Checks whether the powertrain is still under warranty. EV traction packs are
+  covered 8 years **or** a mileage cap, whichever comes **first** — 120,000
+  miles on a Model Y Long Range/Performance. Past that cap, the pack is yours.
+- Prices the worst case (a traction pack, an engine) against the best case (a
+  dead 12V, a missing charge cable).
+- Reports **both** max bids and the spread between them.
+- Cross-references AccuTrade's known failure modes for the VIN. When the list
+  says "Battery Replacement" and the car in front of you won't move, that is
+  not a coincidence.
+
+A worked example is in `samples/adesa_vindow.csv` — a real 2021 Model Y
+Performance at 143,991 miles, AS-IS and INOP, where the auction site's own
+panel showed a projected profit of $8,096 and a max bid of $17,546:
+
+```
+~ SPECULATIVE: $-4,706 worst case / $11,894 best case ($16,600 swing)
+! Known failure modes for this VIN line up with the no-start:
+  Charger Missing; Battery Replacement; Electric Motor(s) Wear/Failure
+```
+
+That is the whole point. It is not a $17,546 car and it is not a $-4,706 car —
+it is a coin flip with $16,600 riding on it, and no book value on the page
+tells you that.
 
 ## The AI part
 
@@ -148,8 +189,10 @@ photos, and scoring rules you can actually inspect and change.
 python -m pytest tests/ -q
 ```
 
-24 tests covering the money math, the buy-box rules, the announcement handling
-and the VIN decode. The network calls are stubbed, so they run offline.
+34 tests covering the money math, the buy-box rules, announcement handling,
+powertrain reserve bracketing and the VIN decode. Network calls are stubbed,
+so they run offline. The powertrain suite is built on the real Model Y listing
+above as a regression case.
 
 ## Layout
 
@@ -158,6 +201,7 @@ auctionscan/
   models.py       Vehicle, Listing, Valuation, HistoryReport, Deal
   config.py       Buy box + cost model (YAML)
   scoring.py      The math. Start here.
+  risk.py         Drivability + powertrain reserve. The part nobody else does.
   pipeline.py     Orchestration: cheap filters before expensive lookups
   report.py       Console, CSV, HTML output
   sources/        Where listings come from (CSV, Manheim, ACV)
