@@ -1,0 +1,26 @@
+{
+  "Model Y": {
+    "maxBid": 12519.34,
+    "maxBidOptimistic": 15619.34,
+    "exitChannel": "retail",
+    "reserveHigh": 3500,
+    "reserveLow": 400.0,
+    "headroom": 1019.34,
+    "certainty": 0.2,
+    "format": "timed",
+    "speculative": false,
+    "score": 7.2232
+  },
+  "Jetta": {
+    "maxBid": 13059.5,
+    "maxBidOptimistic": 13059.5,
+    "exitChannel": "retail",
+    "reserveHigh": 0.0,
+    "reserveLow": 0.0,
+    "headroom": 2659.5,
+    "certainty": 1.0,
+    "format": "make_offer",
+    "speculative": false,
+    "score": 38.2975
+  }
+}

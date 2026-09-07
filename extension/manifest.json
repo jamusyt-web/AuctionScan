@@ -1,0 +1,56 @@
+{
+  "manifest_version": 3,
+  "name": "AuctionScan",
+  "version": "0.1.0",
+  "description": "Watches wholesale auction listings and tells you when one is worth buying.",
+  "permissions": [
+    "storage",
+    "notifications",
+    "alarms",
+    "tabs",
+    "scripting",
+    "downloads"
+  ],
+  "host_permissions": [
+    "https://*.adesa.com/*",
+    "https://*.openlane.com/*",
+    "https://*.manheim.com/*",
+    "https://*.acvauctions.com/*"
+  ],
+  "background": {
+    "service_worker": "src/background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://*.adesa.com/*",
+        "https://*.openlane.com/*",
+        "https://*.manheim.com/*",
+        "https://*.acvauctions.com/*"
+      ],
+      "js": [
+        "src/content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "src/*.js"
+      ],
+      "matches": [
+        "https://*.adesa.com/*",
+        "https://*.openlane.com/*",
+        "https://*.manheim.com/*",
+        "https://*.acvauctions.com/*"
+      ]
+    }
+  ],
+  "action": {
+    "default_popup": "src/popup.html",
+    "default_title": "AuctionScan"
+  },
+  "options_page": "src/options.html"
+}

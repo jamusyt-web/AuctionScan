@@ -15,6 +15,17 @@ SCORE  VEHICLE                               MILES       BID   MAX BID     ROOM 
    13  2020 Volkswagen Jetta GLI            43,700     9,200    10,920    1,720  0.15
 ```
 
+## The browser extension
+
+`extension/` is the part that does the looking. It triages search results for
+free, opens only what survives, scores it locally with the same engine, and
+notifies you when a car is worth buying. See `extension/README.md` to install
+and test it.
+
+The JS engine is a port of the Python one, and `extension/test/parity.test.mjs`
+asserts the two produce identical numbers on the same cars — if they ever
+diverge, that test fails before you find out from a bad bid.
+
 ## Getting listings in
 
 There are no run lists any more — the marketplaces are live platforms and
@@ -335,6 +346,7 @@ auctionscan/
   sources/        Where listings come from (CSV, Manheim, ACV)
   enrich/         VIN decode, valuation, history
   ai/             Screenshot extraction + Claude condition analysis
+extension/        Chrome extension: sweep, triage, score, notify
 ```
 
 ## Status
