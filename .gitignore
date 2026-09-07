@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+config.yaml
+*.local.yaml
+.env
+out/
+*.html
+!samples/*.html

@@ -1,0 +1,4 @@
+requests>=2.31
+PyYAML>=6.0
+pydantic>=2.6
+anthropic>=1.0      # only needed for --ai condition analysis
