@@ -1,7 +1,11 @@
 """Command line entry point.
 
-    python -m auctionscan scan --csv samples/sample_run_list.csv
-    python -m auctionscan scan --csv run.csv --valuation mmr --history nmvtis --ai
+    # Screenshot a listing you're looking at, add it to your watchlist
+    python -m auctionscan grab shot1.png shot2.png --store watchlist.csv
+
+    # Score everything you've collected
+    python -m auctionscan scan --csv watchlist.csv --valuation csv
+
     python -m auctionscan vin 1FTFW1E85MFA12345
 """
 
@@ -62,7 +66,7 @@ def cmd_scan(args: argparse.Namespace) -> int:
             effort=args.effort,
         )
 
-    deals, dropped = run(
+    deals, dropped, data_issues = run(
         listings,
         valuation=valuation,
         cfg=cfg,
@@ -71,6 +75,14 @@ def cmd_scan(args: argparse.Namespace) -> int:
         decode=args.decode,
         transport_miles=args.transport_miles,
     )
+
+    # Data problems are always loud: a mistyped or misread VIN means a real
+    # car is missing from the list, and a silent drop hides that.
+    if data_issues:
+        print(f"\n{len(data_issues)} listing(s) could not be read:", file=sys.stderr)
+        for issue in data_issues:
+            print(f"  ! {issue}", file=sys.stderr)
+        print("", file=sys.stderr)
 
     if args.executable_only:
         before = len(deals)
@@ -105,6 +117,81 @@ def cmd_scan(args: argparse.Namespace) -> int:
             "Wire up MMR or AccuTrade before bidding real money.",
             file=sys.stderr,
         )
+    return 0
+
+
+def cmd_grab(args: argparse.Namespace) -> int:
+    """Read listings out of screenshots and append them to a watchlist CSV."""
+    import csv as _csv
+
+    from .ai.extract import CSV_FIELDS, ScreenshotExtractor, to_csv_row
+    from .enrich.vin import validate_vin
+
+    paths = [Path(p) for p in args.images]
+    missing = [p for p in paths if not p.exists()]
+    if missing:
+        print(f"Not found: {', '.join(str(m) for m in missing)}", file=sys.stderr)
+        return 2
+
+    extractor = ScreenshotExtractor(model=args.model, effort=args.effort)
+
+    # --separate treats each image as its own car; the default merges every
+    # screenshot into one listing (vehicle page + AccuTrade panel + Carfax).
+    groups = [[p] for p in paths] if args.separate else [paths]
+
+    rows = []
+    for group in groups:
+        names = ", ".join(p.name for p in group)
+        print(f"Reading {names} ...", file=sys.stderr)
+        try:
+            extracted = extractor.extract(group, extra_text=args.text)
+        except Exception as exc:  # noqa: BLE001 - report and keep going
+            print(f"  failed: {exc}", file=sys.stderr)
+            continue
+
+        row = to_csv_row(extracted)
+        vin = row["VIN"]
+        if not vin:
+            print("  no VIN found -- skipping", file=sys.stderr)
+            continue
+        if not validate_vin(vin):
+            print(f"  WARNING: {vin} fails its check digit; verify by hand",
+                  file=sys.stderr)
+        label = " ".join(
+            str(row[k]) for k in ("Year", "Make", "Model", "Trim") if row[k]
+        )
+        price = row["Buy Now"] or row["Reserve"] or row["Current Bid"] or "?"
+        print(f"  {vin}  {label}  {row['Sale Format'] or 'timed'} @ {price}",
+              file=sys.stderr)
+        if extracted.notes:
+            print(f"  note: {extracted.notes}", file=sys.stderr)
+        rows.append(row)
+
+    if not rows:
+        print("Nothing extracted.", file=sys.stderr)
+        return 1
+
+    store = Path(args.store)
+    existing: list[dict] = []
+    if store.exists():
+        with store.open(newline="", encoding="utf-8-sig") as fh:
+            existing = list(_csv.DictReader(fh))
+
+    # Re-grabbing a car you already have updates it rather than duplicating.
+    by_vin = {r.get("VIN", ""): r for r in existing}
+    for row in rows:
+        by_vin[row["VIN"]] = row
+
+    with store.open("w", newline="", encoding="utf-8") as fh:
+        writer = _csv.DictWriter(fh, fieldnames=CSV_FIELDS, extrasaction="ignore")
+        writer.writeheader()
+        for row in by_vin.values():
+            writer.writerow({k: row.get(k, "") for k in CSV_FIELDS})
+
+    print(f"\n{len(rows)} listing(s) -> {store} ({len(by_vin)} total)",
+          file=sys.stderr)
+    print(f"Now run: python -m auctionscan scan --csv {store} --valuation csv",
+          file=sys.stderr)
     return 0
 
 
@@ -155,6 +242,20 @@ def main(argv: list[str] | None = None) -> int:
     scan.add_argument("--out-html", type=Path)
     scan.add_argument("-v", "--verbose", action="store_true")
     scan.set_defaults(func=cmd_scan)
+
+    grab = sub.add_parser(
+        "grab", help="Read a listing out of screenshots into your watchlist")
+    grab.add_argument("images", nargs="+", help="Screenshot(s) of ONE vehicle")
+    grab.add_argument("--store", type=Path, default=Path("watchlist.csv"),
+                      help="Watchlist CSV to append to (default watchlist.csv)")
+    grab.add_argument("--separate", action="store_true",
+                      help="Treat each image as a different car")
+    grab.add_argument("--text", default="",
+                      help="Extra text pasted from the page")
+    grab.add_argument("--model", default="claude-opus-5")
+    grab.add_argument("--effort", choices=["low", "medium", "high", "xhigh", "max"],
+                      default="high")
+    grab.set_defaults(func=cmd_grab)
 
     vin = sub.add_parser("vin", help="Decode a VIN via NHTSA vPIC")
     vin.add_argument("vin")

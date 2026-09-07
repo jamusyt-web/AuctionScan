@@ -139,9 +139,13 @@ class ConditionAnalyzer:
         effort: str = "medium",
         client: Any = None,
     ):
-        import anthropic
+        # Only reach for the SDK if we actually need to build a client, so an
+        # injected one (tests, a shared session) works without it installed.
+        if client is None:
+            import anthropic
 
-        self.client = client or anthropic.Anthropic()
+            client = anthropic.Anthropic()
+        self.client = client
         self.model = model
         self.max_photos = max_photos
         self.effort = effort

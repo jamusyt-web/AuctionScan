@@ -17,15 +17,28 @@ from .models import Deal, Listing
 from .scoring import rank, score_listing
 
 
-def prefilter(listings: Iterable[Listing], cfg: Config) -> tuple[list[Listing], list[str]]:
-    """Drop obvious non-starters before spending money on enrichment."""
+def prefilter(
+    listings: Iterable[Listing], cfg: Config
+) -> tuple[list[Listing], list[str], list[str]]:
+    """Drop obvious non-starters before spending money on enrichment.
+
+    Returns (kept, filtered, data_issues). The split matters: a car outside
+    your buy box is a normal, quiet exclusion, but a car dropped because its
+    VIN doesn't checksum is probably a transcription or OCR error -- and
+    silently deleting it would hide a real listing from you.
+    """
     kept: list[Listing] = []
     dropped: list[str] = []
+    data_issues: list[str] = []
     bb = cfg.buy_box
 
     for listing in listings:
         if not validate_vin(listing.vin):
-            dropped.append(f"{listing.listing_id}: bad VIN {listing.vin}")
+            data_issues.append(
+                f"{listing.listing_id or 'row'}: VIN {listing.vin!r} fails its "
+                f"check digit ({listing.description or 'unknown vehicle'}) "
+                f"-- likely a misread; verify and re-enter"
+            )
             continue
         if listing.odometer and listing.odometer > bb.max_odometer:
             dropped.append(f"{listing.vin}: {listing.odometer:,} miles")
@@ -45,7 +58,7 @@ def prefilter(listings: Iterable[Listing], cfg: Config) -> tuple[list[Listing], 
             continue
         kept.append(listing)
 
-    return kept, dropped
+    return kept, dropped, data_issues
 
 
 def run(
@@ -57,14 +70,17 @@ def run(
     decode: bool = False,
     use_batch: bool = True,
     transport_miles: int | None = None,
-) -> tuple[list[Deal], list[str]]:
-    """Run the full pipeline. Returns (ranked deals, dropped-listing notes)."""
+) -> tuple[list[Deal], list[str], list[str]]:
+    """Run the pipeline.
+
+    Returns (ranked deals, quiet buy-box exclusions, loud data problems).
+    """
     cfg = cfg or Config()
     history = history or NullHistory()
 
-    candidates, dropped = prefilter(listings, cfg)
+    candidates, dropped, data_issues = prefilter(listings, cfg)
     if not candidates:
-        return [], dropped
+        return [], dropped, data_issues
 
     # AI condition pass. Batch when there's enough volume to be worth the poll.
     assessments = {}
@@ -99,4 +115,4 @@ def run(
         )
         deals.append(deal)
 
-    return rank(deals), dropped
+    return rank(deals), dropped, data_issues
