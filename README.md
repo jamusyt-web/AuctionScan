@@ -150,10 +150,17 @@ So the tool separates **what you'd actually pay** from what's displayed:
 | Format | Price you'd pay | Certainty |
 |---|---|---|
 | **Buy Now** | The published price. Take it or leave it. | 1.00 |
-| **Make Offer** | Your number — the tool tells you what to offer | 0.80 |
+| **Make Offer, reserve shown** | Their published reserve — offer it and it's yours | 1.00 |
+| **Make Offer, no reserve shown** | Your number, offered blind | 0.80 |
 | Absolute / no reserve | The bid is the price | 0.75 |
 | Timed, reserve **met** | The bid is live | 0.50 |
 | Timed, reserve undisclosed | **Unknown — not scored as a price** | 0.20 |
+
+ACV's make-offer tab publishes the seller's reserve, which makes it a firm
+price with free upside: offering it takes the car, and anything they accept
+below it is money you keep. So it scores with full certainty and the
+recommendation is always *offer the reserve, but try lower first*. Only a
+blind offer with no published number falls back to a guess at acceptance.
 
 Certainty multiplies the score, so executable prices outrank hopeful ones
 automatically. Headroom is measured against the acquisition price, never the
@@ -171,7 +178,9 @@ python -m auctionscan scan --csv run.csv --format buy_now,make_offer
 ```
 
 A known price above your max scores **zero**, not a thin deal — you know
-exactly what it costs and it's too much. That's a pass.
+exactly what it costs and it's too much. That's a pass. (The price is still
+*transactable*; it just isn't a deal. Those are separate questions and the
+code keeps them separate.)
 
 ## Your repair capability is the edge
 
@@ -276,7 +285,7 @@ photos, and scoring rules you can actually inspect and change.
 python -m pytest tests/ -q
 ```
 
-59 tests covering the money math, the buy-box rules, announcement handling,
+66 tests covering the money math, the buy-box rules, announcement handling,
 powertrain reserve bracketing, capability arbitrage, exit selection, sale-format
 and acquisition-price handling, and the VIN decode. Network calls are stubbed,
 so they run offline. The powertrain suite is built on the real Model Y listing

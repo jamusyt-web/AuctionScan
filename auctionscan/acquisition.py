@@ -9,6 +9,11 @@ Buy Now and Make Offer are different in kind, not degree. They give you a
 price you can transact at *now*, so the spread against your walk-away number
 is real money rather than a guess. Everything here exists to keep those two
 separated from wishful thinking, and to rank them accordingly.
+
+A disclosed reserve is the same thing again. ACV's make-offer tab publishes
+the seller's number: offer it and the car is yours, offer less and you might
+still get it. That is a firm price with free upside, not a gamble -- so it
+scores with full certainty, and the recommended play is to try lower first.
 """
 
 from __future__ import annotations
@@ -32,7 +37,7 @@ class SaleFormat(str, Enum):
 # This multiplies the deal score, so executable prices outrank hopeful ones.
 CERTAINTY = {
     SaleFormat.BUY_NOW: 1.00,     # published price, take it or leave it
-    SaleFormat.MAKE_OFFER: 0.80,  # you control the number; acceptance is the risk
+    SaleFormat.MAKE_OFFER: 0.80,  # blind offer: you control the number, not the yes
     SaleFormat.ABSOLUTE: 0.75,    # no reserve, but you can still be outbid
     SaleFormat.LIVE: 0.55,        # price discovery happens in real time
     SaleFormat.TIMED: 0.50,       # reserve met -- still biddable above you
@@ -41,6 +46,8 @@ CERTAINTY = {
 # A timed auction whose reserve is undisclosed and unmet. The listed bid is
 # not an acquisition price and should not be treated as one.
 RESERVE_UNMET_CERTAINTY = 0.20
+# A published reserve is a price you can hit on demand -- as good as Buy Now.
+DISCLOSED_RESERVE_CERTAINTY = 1.00
 
 # Reserves cluster near the wholesale benchmark. Used only to warn how far
 # the listed bid probably sits from the real floor -- never as a buy price.
@@ -97,26 +104,55 @@ def plan(
     fmt = detect_format(listing)
     acq = Acquisition(format=fmt, certainty=CERTAINTY.get(fmt, 0.4))
 
-    if fmt is SaleFormat.BUY_NOW and listing.buy_now:
-        acq.price = listing.buy_now
+    # Every published number you could hit on demand. Both a Buy Now price and
+    # a disclosed reserve are firm; take whichever is cheaper.
+    options: list[tuple[float, str]] = []
+    if listing.buy_now:
+        options.append((listing.buy_now, "buy_now"))
+    if listing.reserve is not None:
+        options.append((listing.reserve, "reserve"))
+
+    if options:
+        price, kind = min(options, key=lambda o: o[0])
+        acq.price = price
+        acq.certainty = DISCLOSED_RESERVE_CERTAINTY
+        # A published price is transactable whether or not it's a good deal.
+        # "Too expensive" is a scoring decision, not an execution one.
         acq.executable = True
-        if listing.buy_now <= max_bid:
+        offering = fmt is SaleFormat.MAKE_OFFER or kind == "reserve"
+
+        if price > max_bid:
+            label = "Buy now" if kind == "buy_now" else "Reserve"
             acq.action = (
-                f"BUY NOW at ${listing.buy_now:,.0f} "
-                f"(${max_bid - listing.buy_now:,.0f} under your max)"
+                f"Pass -- {label.lower()} ${price:,.0f} is "
+                f"${price - max_bid:,.0f} over your max"
+            )
+            return acq
+
+        under = max_bid - price
+        if offering:
+            acq.recommended_offer = price
+            acq.action = (
+                f"OFFER ${price:,.0f} -- their published reserve, takes it now "
+                f"(${under:,.0f} under your max). Try lower first."
+            )
+            acq.notes.append(
+                f"Reserve is disclosed, so ${price:,.0f} is a firm price. "
+                f"Anything they accept below it is upside; you can go as low "
+                f"as you like and still walk at ${max_bid:,.0f}."
             )
         else:
             acq.action = (
-                f"Pass -- buy now ${listing.buy_now:,.0f} is "
-                f"${listing.buy_now - max_bid:,.0f} over your max"
+                f"BUY NOW at ${price:,.0f} (${under:,.0f} under your max)"
             )
         return acq
 
     if fmt is SaleFormat.MAKE_OFFER:
+        # No published reserve: you're bidding blind against their expectation.
         acq.recommended_offer = max_bid
         acq.price = max_bid
         acq.executable = True
-        acq.action = f"OFFER ${max_bid:,.0f}"
+        acq.action = f"OFFER ${max_bid:,.0f} (no reserve shown)"
         if wholesale_value and wholesale_value > 0:
             ratio = max_bid / wholesale_value
             acq.notes.append(
@@ -143,16 +179,6 @@ def plan(
         acq.price = bid
         acq.executable = True
         acq.action = f"Bid up to ${max_bid:,.0f} (reserve met at ${bid:,.0f})"
-        return acq
-
-    if listing.reserve is not None:
-        acq.price = listing.reserve
-        acq.executable = listing.reserve <= max_bid
-        acq.action = (
-            f"Bid up to ${max_bid:,.0f}; reserve is ${listing.reserve:,.0f}"
-            if listing.reserve <= max_bid
-            else f"Pass -- reserve ${listing.reserve:,.0f} over your max"
-        )
         return acq
 
     # The case that started all this: undisclosed, unmet reserve.

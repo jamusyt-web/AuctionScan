@@ -108,6 +108,7 @@ def test_buy_now_over_max_says_pass():
     deal = score_listing(listing(buy_now=40_000), val(), cfg=cfg())
     assert "Pass" in deal.acquisition.action
     assert deal.headroom < 0
+    assert deal.score == 0.0
 
 
 def test_buy_now_headroom_uses_the_buy_now_price_not_the_bid():
@@ -152,8 +153,9 @@ def test_disclosed_reserve_under_max_is_executable():
 
 
 def test_disclosed_reserve_over_max_is_a_pass():
+    """The price is known and transactable -- it's just too much money."""
     acq = plan(listing(reserve=30_000), max_bid=20_000, wholesale_value=25_000)
-    assert not acq.executable
+    assert acq.price == 30_000
     assert "Pass" in acq.action
 
 
@@ -193,3 +195,70 @@ def test_executable_flag_separates_real_prices_from_hopeful_ones():
         listing(reserve_met=True), val(), cfg=cfg()
     ).executable
     assert not score_listing(listing(), val(), cfg=cfg()).executable
+
+
+# --- ACV make offer with a published reserve -------------------------------
+# The seller's number is on screen. Offer it and the car is yours; offer less
+# and you might still get it. That's a firm price with free upside.
+
+def test_disclosed_reserve_on_make_offer_is_a_firm_price():
+    deal = score_listing(
+        listing(make_offer=True, reserve=12_000, current_bid=9_000),
+        val(), cfg=cfg(),
+    )
+    acq = deal.acquisition
+    assert acq.executable
+    assert acq.price == 12_000
+    assert acq.recommended_offer == 12_000
+    assert acq.certainty == 1.0            # as certain as a Buy Now
+    assert "takes it now" in acq.action
+    assert "Try lower first" in acq.action
+
+
+def test_disclosed_reserve_scores_like_a_buy_now_not_a_blind_offer():
+    """Same price, but one is published and one is a guess."""
+    published = score_listing(
+        listing(make_offer=True, reserve=20_000), val(), cfg=cfg()
+    )
+    blind = score_listing(listing(make_offer=True), val(), cfg=cfg())
+    assert published.acquisition.certainty > blind.acquisition.certainty
+    assert published.score > blind.score
+
+
+def test_headroom_is_measured_against_their_published_reserve():
+    deal = score_listing(
+        listing(make_offer=True, reserve=12_000, current_bid=5_000),
+        val(), cfg=cfg(),
+    )
+    assert deal.headroom == deal.max_bid - 12_000
+
+
+def test_reserve_over_max_is_a_pass_even_though_you_could_offer():
+    deal = score_listing(
+        listing(make_offer=True, reserve=40_000), val(), cfg=cfg()
+    )
+    assert "Pass" in deal.acquisition.action
+    assert deal.score == 0.0          # known price over the max is not a deal
+
+
+def test_upside_below_the_reserve_is_called_out():
+    deal = score_listing(
+        listing(make_offer=True, reserve=12_000), val(), cfg=cfg()
+    )
+    assert any("upside" in n for n in deal.acquisition.notes)
+
+
+def test_cheaper_of_buy_now_and_reserve_wins():
+    """If both are published, you'd obviously take the lower one."""
+    acq = plan(listing(buy_now=21_000, reserve=19_500), max_bid=23_000)
+    assert acq.price == 19_500
+    assert acq.executable
+
+
+def test_blind_offer_still_uses_the_ratio_read():
+    """No published reserve means the acceptance guess is all we have."""
+    deal = score_listing(
+        listing(make_offer=True, current_bid=3_000), val(wholesale=6_000), cfg=cfg()
+    )
+    assert deal.acquisition.recommended_offer == deal.max_bid
+    assert "likely rejected" in deal.acquisition.action
