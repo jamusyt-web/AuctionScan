@@ -20,7 +20,7 @@ export const DEFAULT_CONFIG = {
   },
   capabilities: {
     evBatteryPack: 3500,      // confirmed in-house cost
-    evDriveUnit: null,        // TODO: set this -- it is the binding number
+    evDriveUnit: 2000,        // confirmed in-house cost
     engine: null, transmission: null,
     unpricedPowertrainMinGross: 4000,
   },

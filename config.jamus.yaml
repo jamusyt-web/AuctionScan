@@ -21,7 +21,7 @@ buy_box:
 
 capabilities:
   ev_battery_pack: 3500       # confirmed
-  ev_drive_unit: null         # TODO - what does a drive unit cost you?
+  ev_drive_unit: 2000         # confirmed
   engine: null                # priced per job
   transmission: null          # priced per job
   # Engines and transmissions: only when there's good money on the table.
