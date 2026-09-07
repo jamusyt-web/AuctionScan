@@ -282,7 +282,14 @@ class CsvValuation(ValuationProvider):
         mmr = num("mmr", "manheim", "manheim mmr")
         target = num("target auction", "target", "target wholesale")
         instant = num("instant offer", "ico", "instant cash offer")
-        retail = num("median retail", "retail median", "cars.com median retail")
+        # Two different retail numbers. "Retail" is the mileage-adjusted one
+        # the marketplace shows; "Median Retail" is a book median for the
+        # model with no odometer adjustment at all. Only the first is a
+        # defensible exit price -- using a median on a 144k-mile car
+        # overstates the exit by thousands.
+        retail_adj = num("retail", "adjusted retail", "clear retail")
+        retail_median = num("median retail", "retail median",
+                            "cars.com median retail")
         problems_raw = str(
             lookup.get("common problems") or lookup.get("known problems") or ""
         )
@@ -299,12 +306,16 @@ class CsvValuation(ValuationProvider):
             wholesale=mmr or target,
             wholesale_low=instant,
             wholesale_high=target,
-            retail=retail,
+            retail=retail_adj,
             mmr=mmr,
             target_auction=target,
             instant_offer=instant,
-            retail_median=retail,
+            retail_median=retail_median,
             common_problems=problems,
+            notes=(
+                "" if retail_adj else
+                "No mileage-adjusted retail value; retail exit not scored."
+            ),
             # AccuTrade applies its own odometer adjustment before it shows you
             # these numbers, so don't apply ours on top.
             adjusted_for_mileage=True,

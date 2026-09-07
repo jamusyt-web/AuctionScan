@@ -40,6 +40,7 @@ ALIASES = {
     "mmr": ("mmr", "manheim", "manheim mmr"),
     "target_auction": ("target auction", "target", "target wholesale"),
     "instant_offer": ("instant offer", "ico", "instant cash offer"),
+    "retail": ("retail", "adjusted retail", "clear retail"),
     "median_retail": ("median retail", "retail median", "cars.com median retail"),
     "common_problems": ("common problems", "known problems", "problems"),
 }

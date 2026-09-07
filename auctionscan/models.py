@@ -191,6 +191,7 @@ class Deal:
     max_bid: float = 0.0             # walk-away number (worst case priced in)
     max_bid_optimistic: float = 0.0  # if the cheap explanation is the right one
     speculative: bool = False        # the bracket is too wide to call it a buy
+    exit_channel: str = "wholesale"  # which way out makes this car work
     projected_gross: float = 0.0     # at current bid
     total_costs: float = 0.0         # recon + transport + fees
     score: float = 0.0               # 0-100, higher is better

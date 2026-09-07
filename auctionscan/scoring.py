@@ -16,7 +16,9 @@ to bid at all when the car is outside the buy box.
 
 from __future__ import annotations
 
-from .config import Config
+from .config import Config, ExitChannel
+from dataclasses import dataclass
+
 from .models import (
     ConditionAssessment, Deal, HistoryReport, Listing, TitleBrand, Valuation, VinDecode,
 )
@@ -197,6 +199,49 @@ def _announcement_permission(announcement: str) -> str | None:
     return None
 
 
+@dataclass
+class ExitResult:
+    """What one exit channel is worth on this car."""
+
+    exit: ExitChannel
+    exit_value: float
+    max_bid: float
+    max_bid_optimistic: float
+    total_costs: float
+    required_gross: float
+
+
+def evaluate_exit(
+    channel: ExitChannel,
+    exit_value: float,
+    recon_base: float,
+    transport: float,
+    reserve_low: float,
+    reserve_high: float,
+    cfg: Config,
+    unpriced_powertrain: bool = False,
+) -> ExitResult:
+    """Price one way out of the car."""
+    recon = recon_base * channel.recon_multiplier
+    holding = cfg.costs.floorplan_daily * channel.days_held
+    fees = cfg.costs.buy_fee + channel.sell_fee
+
+    fixed = recon + transport + fees + holding
+    required = channel.required_gross(exit_value)
+    # "Only if there's a good amount of money on the table."
+    if unpriced_powertrain:
+        required = max(required, cfg.capabilities.unpriced_powertrain_min_gross)
+
+    return ExitResult(
+        exit=channel,
+        exit_value=exit_value,
+        max_bid=exit_value - fixed - reserve_high - required,
+        max_bid_optimistic=exit_value - fixed - reserve_low - required,
+        total_costs=fixed + reserve_high,
+        required_gross=required,
+    )
+
+
 def confidence_score(deal: Deal) -> float:
     """How much to trust this scoring. Missing data is the main penalty."""
     score = 1.0
@@ -243,34 +288,67 @@ def score_listing(
 
     recon = recon_estimate(condition, cfg)
     transport = cfg.costs.transport_cost(transport_miles)
-    fees = cfg.costs.buy_fee + cfg.costs.sell_fee
-    holding = cfg.costs.holding_cost()
 
-    # Every book value assumes the car runs. If it doesn't, price the unknown.
-    reserve = estimate_reserve(listing, vin_decode)
+    # Every book value assumes the car runs. If it doesn't, price the unknown
+    # -- at YOUR repair cost where you have one.
+    reserve = estimate_reserve(listing, vin_decode, capabilities=cfg.capabilities)
     deal.powertrain_reserve = reserve
     deal.reasoning.extend(reserve.basis)
+    unpriced = bool(reserve.unverified and reserve.unpriced)
 
-    deal.total_costs = recon + transport + fees + holding + reserve.high
-    optimistic_costs = recon + transport + fees + holding + reserve.low
+    # The same car is worth different money depending on how you get out of
+    # it. Score every exit you actually have and take the best one.
+    base = valuation.wholesale or 0.0
+    haircut = (value / base) if base else 1.0
+    results: list[ExitResult] = []
+    for channel in cfg.exits:
+        if not channel.enabled:
+            continue
+        if channel.name == "retail":
+            if not valuation.retail:
+                continue
+            exit_value = valuation.retail * haircut
+        else:
+            exit_value = value
+        results.append(evaluate_exit(
+            channel, exit_value, recon, transport,
+            reserve.low, reserve.high, cfg, unpriced,
+        ))
 
-    required_gross = cfg.buy_box.required_gross(value)
-    deal.max_bid = value - deal.total_costs - required_gross
-    deal.max_bid_optimistic = value - optimistic_costs - required_gross
+    if not results:
+        deal.risk_flags.append("No usable exit channel")
+        return deal
+
+    best = max(results, key=lambda r: r.max_bid)
+    deal.exit_channel = best.exit.name
+    deal.max_bid = best.max_bid
+    deal.max_bid_optimistic = best.max_bid_optimistic
+    deal.total_costs = best.total_costs
 
     bid = listing.current_bid or 0.0
-    deal.projected_gross = value - bid - deal.total_costs
+    deal.projected_gross = best.exit_value - bid - best.total_costs
 
-    deal.reasoning.append(
-        f"Adjusted wholesale ${value:,.0f} - recon ${recon:,.0f} "
-        f"- transport ${transport:,.0f} - fees ${fees:,.0f} "
-        f"- holding ${holding:,.0f}"
-        + (f" - powertrain reserve ${reserve.high:,.0f}" if reserve.high else "")
-        + f" - target gross ${required_gross:,.0f} = max bid ${deal.max_bid:,.0f}"
-    )
+    for r in results:
+        deal.reasoning.append(
+            f"[{r.exit.name}] exit ${r.exit_value:,.0f} - costs "
+            f"${r.total_costs:,.0f} - gross ${r.required_gross:,.0f} "
+            f"= max bid ${r.max_bid:,.0f}"
+        )
+    if len(results) > 1:
+        deal.reasoning.append(f"Best exit: {best.exit.name}")
+    if unpriced:
+        deal.reasoning.append(
+            f"Unpriced powertrain job ({', '.join(reserve.unpriced)}): "
+            f"requiring ${cfg.capabilities.unpriced_powertrain_min_gross:,.0f} "
+            f"gross before it's worth the gamble."
+        )
 
-    # A reserve you cannot size is a bet, not a buy. Say so out loud.
-    if reserve.unverified and reserve.spread > cfg.buy_box.max_risk_spread:
+    required_gross = best.required_gross
+
+    # A reserve you cannot size is a bet, not a buy. One you can price in-house
+    # is just a cost of goods, however big it looks to everyone else.
+    if (reserve.unverified and reserve.unpriced
+            and reserve.spread > cfg.buy_box.max_risk_spread):
         deal.speculative = True
         deal.reasoning.append(
             f"UNVERIFIED FAILURE: outcome swings ${reserve.low:,.0f} to "

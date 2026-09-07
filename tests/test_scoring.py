@@ -7,7 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from auctionscan.config import BuyBox, Config, CostModel
+from auctionscan.config import BuyBox, Config, CostModel, ExitChannel
 from auctionscan.enrich.vin import validate_vin
 from auctionscan.models import (
     ConditionAssessment, HistoryReport, Listing, TitleBrand, Valuation,
@@ -29,10 +29,12 @@ def make_config() -> Config:
     return Config(
         buy_box=BuyBox(target_gross=1_000, target_gross_pct=0.0, min_grade=3.0),
         costs=CostModel(
-            buy_fee=400, sell_fee=300, transport_minimum=200,
-            default_transport_miles=100, transport_per_mile=1.0,
-            floorplan_daily=10, expected_days_held=20, baseline_recon=500,
+            buy_fee=400, transport_minimum=200, default_transport_miles=100,
+            transport_per_mile=1.0, floorplan_daily=10, baseline_recon=500,
         ),
+        exits=[ExitChannel(name="wholesale", days_held=20, sell_fee=300,
+                           recon_multiplier=1.0, target_gross=1_000,
+                           target_gross_pct=0.0)],
     )
 
 

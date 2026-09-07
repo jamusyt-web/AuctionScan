@@ -135,6 +135,55 @@ That is the whole point. It is not a $17,546 car and it is not a $-4,706 car —
 it is a coin flip with $16,600 riding on it, and no book value on the page
 tells you that.
 
+## Your repair capability is the edge
+
+The lane prices a broken car at what the repair costs *the average buyer*. If
+you can do that repair in-house for less, the gap is your margin — but only a
+tool that knows your cost can see it. So costs you can do yourself go in
+`capabilities`:
+
+```yaml
+capabilities:
+  ev_battery_pack: 3500       # your cost, not the market's $17,000
+  ev_drive_unit: null         # can't price it? say so
+  unpriced_powertrain_min_gross: 4000
+```
+
+A repair you've priced stops being a gamble and becomes a cost of goods — the
+car is no longer flagged speculative, however scary it looks to everyone else.
+A repair you *haven't* priced keeps the market's worst case, stays flagged, and
+demands `unpriced_powertrain_min_gross` before it's worth doing. That's the
+"only if there's a good amount of money on the table" rule, written down.
+
+## Two ways out of a car
+
+A wholesale flip and a fix-and-retail are different businesses: different exit
+price, hold time, recon standard and gross target. Both are scored, and the
+better one wins:
+
+```yaml
+exits:
+  - name: wholesale
+    days_held: 21
+    sell_fee: 300
+    recon_multiplier: 1.0
+    target_gross: 1200
+  - name: retail
+    days_held: 45
+    sell_fee: 0
+    recon_multiplier: 1.6     # retail-ready costs more than lane-ready
+    target_gross: 2500
+```
+
+This matters more than it sounds. On that Model Y, even at a $3,500 in-house
+pack, the **wholesale flip never clears** — it's the retail exit that makes
+broken EVs work. A tool that only modeled the flip would have told you to pass
+on your own best niche.
+
+One caution the code enforces: a "median retail" book number is not
+odometer-adjusted, and using it as an exit price overstates a high-mile car by
+thousands. Only a mileage-adjusted retail value is scored as an exit.
+
 ## The AI part
 
 `auctionscan/ai/condition.py` sends the condition report text and up to 8
@@ -189,8 +238,9 @@ photos, and scoring rules you can actually inspect and change.
 python -m pytest tests/ -q
 ```
 
-34 tests covering the money math, the buy-box rules, announcement handling,
-powertrain reserve bracketing and the VIN decode. Network calls are stubbed,
+39 tests covering the money math, the buy-box rules, announcement handling,
+powertrain reserve bracketing, capability arbitrage, exit selection and
+the VIN decode. Network calls are stubbed,
 so they run offline. The powertrain suite is built on the real Model Y listing
 above as a regression case.
 
@@ -202,6 +252,7 @@ auctionscan/
   config.py       Buy box + cost model (YAML)
   scoring.py      The math. Start here.
   risk.py         Drivability + powertrain reserve. The part nobody else does.
+  config.py       Buy box, cost model, capabilities, exit channels
   pipeline.py     Orchestration: cheap filters before expensive lookups
   report.py       Console, CSV, HTML output
   sources/        Where listings come from (CSV, Manheim, ACV)

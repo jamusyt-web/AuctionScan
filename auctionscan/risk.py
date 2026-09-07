@@ -15,8 +15,12 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 from .models import Listing, VinDecode
+
+if TYPE_CHECKING:
+    from .config import Capabilities
 
 # Signals that the car does not drive under its own power.
 INOP_PATTERNS = (
@@ -76,6 +80,8 @@ class PowertrainReserve:
     unverified: bool = False
     in_warranty: bool = False
     is_ev: bool = False
+    in_house: bool = False           # you can do this repair at a known price
+    unpriced: list[str] = field(default_factory=list)   # jobs you can't price
     basis: list[str] = field(default_factory=list)
 
     @property
@@ -162,9 +168,17 @@ def powertrain_warranty(
 
 
 def estimate_reserve(
-    listing: Listing, decode: VinDecode | None = None, current_year: int = 2026
+    listing: Listing,
+    decode: VinDecode | None = None,
+    current_year: int = 2026,
+    capabilities: "Capabilities | None" = None,
 ) -> PowertrainReserve:
-    """Bracket the cost of whatever is wrong with an INOP car."""
+    """Bracket the cost of whatever is wrong with an INOP car.
+
+    When `capabilities` prices the repair, the worst case becomes YOUR cost
+    rather than the market's -- which is the whole reason a shop that can do
+    the work sees a deal where everyone else sees a landmine.
+    """
     reserve = PowertrainReserve()
     if not is_inoperable(listing):
         return reserve
@@ -184,20 +198,37 @@ def estimate_reserve(
         return reserve
 
     reserve.low = TRIVIAL_FIX
+
+    # Each candidate failure: (capability name, market worst case, label).
     if reserve.is_ev:
         pack = EV_PACK_COST.get(_key(listing), EV_PACK_COST_DEFAULT)
-        reserve.high = pack[1]
-        reserve.basis.append(
-            f"Out-of-warranty EV: pack replacement ${pack[0]:,}-${pack[1]:,} "
-            f"installed, drive unit ${EV_DRIVE_UNIT_COST[0]:,}-"
-            f"${EV_DRIVE_UNIT_COST[1]:,} on top"
-        )
+        candidates = [
+            ("ev_battery_pack", pack[1], "traction pack"),
+            ("ev_drive_unit", EV_DRIVE_UNIT_COST[1], "drive unit"),
+        ]
     else:
-        reserve.high = ICE_POWERTRAIN_COST[1]
-        reserve.basis.append(
-            f"Out-of-warranty engine/transmission replacement "
-            f"${ICE_POWERTRAIN_COST[0]:,}-${ICE_POWERTRAIN_COST[1]:,}"
-        )
+        candidates = [
+            ("engine", ICE_POWERTRAIN_COST[1], "engine"),
+            ("transmission", ICE_POWERTRAIN_COST[1], "transmission"),
+        ]
+
+    # The binding number is the worst SINGLE job, not the sum -- these are
+    # alternative explanations for one no-start, not a list of known failures.
+    worst = 0.0
+    for name, market, label in candidates:
+        own = capabilities.cost_for(name) if capabilities else None
+        if own is not None:
+            reserve.in_house = True
+            reserve.basis.append(f"{label.title()} in-house at ${own:,.0f}")
+            worst = max(worst, own)
+        else:
+            reserve.unpriced.append(label)
+            reserve.basis.append(
+                f"{label.title()} NOT priced -- using market ${market:,.0f}. "
+                f"Set capabilities.{name} to your real cost."
+            )
+            worst = max(worst, market)
+    reserve.high = worst
 
     if is_as_is(listing):
         reserve.basis.append("Sold AS-IS: no arbitration if it's the expensive one")
