@@ -43,6 +43,10 @@ ALIASES = {
     "retail": ("retail", "adjusted retail", "clear retail"),
     "median_retail": ("median retail", "retail median", "cars.com median retail"),
     "common_problems": ("common problems", "known problems", "problems"),
+    "sale_format": ("sale format", "format", "sale type", "channel"),
+    "reserve": ("reserve", "reserve price"),
+    "reserve_met": ("reserve met", "reserve status"),
+    "make_offer": ("make offer", "offer enabled", "accepts offers"),
 }
 
 
@@ -132,6 +136,15 @@ class CsvSource(ListingSource):
                 ) else None
                 as_is = any(k in blob for k in ("as-is", "as is", "no arbitration"))
 
+                rm_raw = (get("reserve_met") or "").strip().lower()
+                reserve_met = (
+                    True if rm_raw in ("yes", "true", "met", "y", "1")
+                    else False if rm_raw in ("no", "false", "not met", "n", "0")
+                    else None
+                )
+                mo_raw = (get("make_offer") or "").strip().lower()
+                make_offer = mo_raw in ("yes", "true", "y", "1", "enabled")
+
                 yield Listing(
                     source=self.source_label,
                     listing_id=(get("listing_id") or f"row-{i + 2}").strip(),
@@ -153,5 +166,9 @@ class CsvSource(ListingSource):
                     url=(get("url") or "").strip(),
                     drivable=drivable,
                     as_is=as_is,
+                    reserve=_to_float(get("reserve")),
+                    reserve_met=reserve_met,
+                    make_offer=make_offer,
+                    sale_format=(get("sale_format") or "").strip(),
                     raw=dict(row),
                 )

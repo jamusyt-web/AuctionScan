@@ -5,7 +5,7 @@ Everything a dealer would argue about lives here, not in the scoring code.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import Any
 
@@ -136,6 +136,18 @@ class BuyBox:
         return max(self.target_gross, wholesale_value * self.target_gross_pct)
 
 
+def _build(cls, values: dict[str, Any], section: str):
+    """Construct a config section, naming the bad key instead of a TypeError."""
+    known = {f.name for f in fields(cls)}
+    unknown = set(values) - known
+    if unknown:
+        raise ValueError(
+            f"Unknown key(s) in '{section}': {', '.join(sorted(unknown))}. "
+            f"Valid keys: {', '.join(sorted(known))}"
+        )
+    return cls(**values)
+
+
 @dataclass
 class Config:
     buy_box: BuyBox = field(default_factory=BuyBox)
@@ -153,10 +165,15 @@ class Config:
         data: dict[str, Any] = yaml.safe_load(Path(path).read_text()) or {}
         exits = data.get("exits")
         return cls(
-            buy_box=BuyBox(**data.get("buy_box", {})),
-            costs=CostModel(**data.get("costs", {})),
-            capabilities=Capabilities(**data.get("capabilities", {})),
-            exits=[ExitChannel(**e) for e in exits] if exits else default_exits(),
+            buy_box=_build(BuyBox, data.get("buy_box", {}), "buy_box"),
+            costs=_build(CostModel, data.get("costs", {}), "costs"),
+            capabilities=_build(
+                Capabilities, data.get("capabilities", {}), "capabilities"
+            ),
+            exits=(
+                [_build(ExitChannel, e, "exits") for e in exits]
+                if exits else default_exits()
+            ),
             home_zip=data.get("home_zip", ""),
             model=data.get("model", "claude-opus-5"),
             use_ai_condition=data.get("use_ai_condition", True),

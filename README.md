@@ -70,6 +70,9 @@ auction page; the Perseus API is the sanctioned way to get it programmatically.
 | Source | What it gives you | Access |
 |---|---|---|
 | **CSV + VIN-dow numbers** | Everything below, keyed in by hand | Free, works today. `--valuation csv` |
+| **ADESA / OPENLANE** | Listings incl. Buy Now | Negotiated — no public portal |
+| **Manheim** | Listings incl. Buy Now | Developer portal, OAuth2 |
+| **ACV** | Listings incl. Make Offer | Dealer API via your rep |
 | **AccuTrade (Perseus)** | MMR, target auction, instant offer, retail, common problems | Cars Commerce API key |
 | **NHTSA vPIC** | Factory build data, VIN validation | Free, no key |
 | **Carfax** | Accident/service history | Bundled with AccuTrade, or a negotiated data agreement for API access |
@@ -134,6 +137,41 @@ panel showed a projected profit of $8,096 and a max bid of $17,546:
 That is the whole point. It is not a $17,546 car and it is not a $-4,706 car —
 it is a coin flip with $16,600 riding on it, and no book value on the page
 tells you that.
+
+## The listed bid is not a price
+
+On a timed auction with an undisclosed reserve, the number on screen is not
+what the car costs. A unit showing $11,500 with zero bidders and a $13,500
+reserve looks like the best deal on the page and is not for sale at that
+price. Scoring spread against it manufactures deals that don't exist.
+
+So the tool separates **what you'd actually pay** from what's displayed:
+
+| Format | Price you'd pay | Certainty |
+|---|---|---|
+| **Buy Now** | The published price. Take it or leave it. | 1.00 |
+| **Make Offer** | Your number — the tool tells you what to offer | 0.80 |
+| Absolute / no reserve | The bid is the price | 0.75 |
+| Timed, reserve **met** | The bid is live | 0.50 |
+| Timed, reserve undisclosed | **Unknown — not scored as a price** | 0.20 |
+
+Certainty multiplies the score, so executable prices outrank hopeful ones
+automatically. Headroom is measured against the acquisition price, never the
+listed bid. A hidden-reserve lot reports `reserve?` instead of a spread,
+because inventing one would be lying.
+
+Two flags for the way you actually buy:
+
+```bash
+# Only cars you can transact on right now
+python -m auctionscan scan --csv run.csv --executable-only
+
+# Just the Buy Now and Make Offer channels
+python -m auctionscan scan --csv run.csv --format buy_now,make_offer
+```
+
+A known price above your max scores **zero**, not a thin deal — you know
+exactly what it costs and it's too much. That's a pass.
 
 ## Your repair capability is the edge
 
@@ -238,9 +276,9 @@ photos, and scoring rules you can actually inspect and change.
 python -m pytest tests/ -q
 ```
 
-39 tests covering the money math, the buy-box rules, announcement handling,
-powertrain reserve bracketing, capability arbitrage, exit selection and
-the VIN decode. Network calls are stubbed,
+59 tests covering the money math, the buy-box rules, announcement handling,
+powertrain reserve bracketing, capability arbitrage, exit selection, sale-format
+and acquisition-price handling, and the VIN decode. Network calls are stubbed,
 so they run offline. The powertrain suite is built on the real Model Y listing
 above as a regression case.
 
@@ -252,6 +290,7 @@ auctionscan/
   config.py       Buy box + cost model (YAML)
   scoring.py      The math. Start here.
   risk.py         Drivability + powertrain reserve. The part nobody else does.
+  acquisition.py  Sale format, executable price, what to actually do
   config.py       Buy box, cost model, capabilities, exit channels
   pipeline.py     Orchestration: cheap filters before expensive lookups
   report.py       Console, CSV, HTML output

@@ -14,6 +14,7 @@ from enum import Enum
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from .acquisition import Acquisition
     from .risk import PowertrainReserve
 
 
@@ -44,6 +45,11 @@ class Listing:
     current_bid: float | None = None
     buy_now: float | None = None
     reserve: float | None = None
+    # On a timed sale the reserve is usually undisclosed. None means "we don't
+    # know", which is NOT the same as met -- see acquisition.py.
+    reserve_met: bool | None = None
+    make_offer: bool = False
+    sale_format: str = ""            # buy_now, make_offer, timed, live, absolute
     sale_date: datetime | None = None
     location: str = ""               # city/state the car physically sits in
 
@@ -192,6 +198,7 @@ class Deal:
     max_bid_optimistic: float = 0.0  # if the cheap explanation is the right one
     speculative: bool = False        # the bracket is too wide to call it a buy
     exit_channel: str = "wholesale"  # which way out makes this car work
+    acquisition: "Acquisition | None" = None
     projected_gross: float = 0.0     # at current bid
     total_costs: float = 0.0         # recon + transport + fees
     score: float = 0.0               # 0-100, higher is better
@@ -201,9 +208,19 @@ class Deal:
 
     @property
     def headroom(self) -> float:
-        """Dollars between the current bid and our walk-away number."""
-        bid = self.listing.current_bid or 0.0
-        return self.max_bid - bid
+        """Dollars between what you'd actually pay and your walk-away number.
+
+        Measured against the acquisition price, not the listed bid -- on a
+        reserve auction those are different numbers and only one is real.
+        """
+        if self.acquisition and self.acquisition.price is not None:
+            return self.max_bid - self.acquisition.price
+        return self.max_bid - (self.listing.current_bid or 0.0)
+
+    @property
+    def executable(self) -> bool:
+        """Can you transact at a known price right now?"""
+        return bool(self.acquisition and self.acquisition.executable)
 
     @property
     def risk_spread(self) -> float:

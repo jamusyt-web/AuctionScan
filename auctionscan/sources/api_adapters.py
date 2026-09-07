@@ -11,7 +11,8 @@ are granted access, because those specs are behind a login and change.
   ACV       Smart Acquisition Manager exposes a buying API to dealers with a
             platform to integrate. Contact your ACV rep; there is no public
             self-serve portal.
-  OPENLANE  No public developer portal. Integration is via partnership.
+  OPENLANE/ADESA  No public developer portal. Integration is via partnership;
+            ask your rep about marketplace data access.
 
 Fill in `_parse_listing` once you can see a real payload. Everything else --
 auth, paging, retry -- is already here.
@@ -132,6 +133,9 @@ class ManheimSource(ListingSource):
             photo_urls=item.get("imageUrls", []) or [],
             location=item.get("location", "") or "",
             url=item.get("vdpUrl", "") or "",
+            reserve=item.get("reservePrice"),
+            reserve_met=item.get("reserveMet"),
+            sale_format="buy_now" if item.get("buyNowPrice") else "",
             raw=item,
         )
 
@@ -192,5 +196,78 @@ class AcvSource(ListingSource):
             photo_urls=[p.get("url") for p in item.get("photos", []) if p.get("url")],
             location=item.get("location", "") or "",
             url=item.get("url", "") or "",
+            reserve_met=item.get("reserve_met"),
+            # ACV's make-offer channel is the one worth watching: you name a
+            # number and know immediately whether you own the car.
+            make_offer=bool(item.get("accepts_offers") or item.get("make_offer")),
+            sale_format=(
+                "buy_now" if item.get("buy_now_price")
+                else "make_offer" if item.get("accepts_offers") else ""
+            ),
+            raw=item,
+        )
+
+
+class OpenlaneSource(ListingSource):
+    """OPENLANE / ADESA marketplace.
+
+    No public developer portal -- access is negotiated. The Buy Now channel is
+    the one worth pulling first: a published price you can execute against
+    beats a timed lane where the reserve is hidden.
+
+    Set OPENLANE_API_TOKEN and OPENLANE_API_URL once your rep provisions them.
+    """
+
+    name = "openlane"
+
+    def __init__(self, filters: dict[str, Any] | None = None):
+        self.token = os.getenv("OPENLANE_API_TOKEN")
+        self.url = os.getenv("OPENLANE_API_URL")
+        if not (self.token and self.url):
+            raise ApiNotConfigured(
+                "Set OPENLANE_API_TOKEN and OPENLANE_API_URL. OPENLANE has no "
+                "self-serve portal -- ask your ADESA/OPENLANE rep."
+            )
+        self.filters = filters or {}
+
+    def fetch(self) -> Iterator[Listing]:
+        page = 1
+        while True:
+            resp = requests.get(
+                self.url,
+                headers={"Authorization": f"Bearer {self.token}"},
+                params={"page": page, **self.filters},
+                timeout=60,
+            )
+            resp.raise_for_status()
+            items = resp.json().get("results", [])
+            if not items:
+                return
+            for item in items:
+                yield self._parse_listing(item)
+            page += 1
+
+    def _parse_listing(self, item: dict[str, Any]) -> Listing:
+        # CONFIRM against a live payload.
+        return Listing(
+            source=self.name,
+            listing_id=str(item.get("id", "")),
+            vin=(item.get("vin") or "").upper(),
+            year=item.get("year"),
+            make=item.get("make", ""),
+            model=item.get("model", ""),
+            trim=item.get("trim", ""),
+            odometer=item.get("odometer"),
+            current_bid=item.get("currentBid"),
+            buy_now=item.get("buyNowPrice"),
+            reserve=item.get("reservePrice"),
+            reserve_met=item.get("reserveMet"),
+            grade=item.get("conditionGrade"),
+            announcements=item.get("announcements", []) or [],
+            condition_report_text=item.get("conditionReport", "") or "",
+            photo_urls=item.get("photos", []) or [],
+            location=item.get("location", "") or "",
+            url=item.get("detailUrl", "") or "",
+            sale_format="buy_now" if item.get("buyNowPrice") else "",
             raw=item,
         )

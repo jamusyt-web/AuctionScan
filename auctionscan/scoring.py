@@ -16,6 +16,7 @@ to bid at all when the car is outside the buy box.
 
 from __future__ import annotations
 
+from .acquisition import plan as plan_acquisition
 from .config import Config, ExitChannel
 from dataclasses import dataclass
 
@@ -393,14 +394,28 @@ def score_listing(
 
     deal.confidence = confidence_score(deal)
 
-    # Score: headroom relative to the gross you asked for, scaled by confidence.
-    # 0 headroom -> 50. Double your target gross of headroom -> 100.
+    # How you buy it decides whether the spread is money or wishful thinking.
+    deal.acquisition = plan_acquisition(listing, deal.max_bid, value)
+    deal.reasoning.extend(deal.acquisition.notes)
+    if deal.acquisition.action:
+        deal.reasoning.append(deal.acquisition.action)
+
+    # Score: headroom relative to the gross you asked for, scaled by how much
+    # we trust the valuation AND how sure we are of the price we'd pay.
     if disqualifying:
+        deal.score = 0.0
+    elif deal.acquisition.executable and deal.headroom < 0:
+        # We know exactly what it costs and it's over the walk-away number.
+        # That's a pass, not a thin deal.
         deal.score = 0.0
     else:
         ratio = deal.headroom / required_gross if required_gross else 0.0
         raw = 50.0 + 25.0 * ratio
-        deal.score = max(0.0, min(100.0, raw)) * deal.confidence
+        deal.score = (
+            max(0.0, min(100.0, raw))
+            * deal.confidence
+            * deal.acquisition.certainty
+        )
 
     return deal
 

@@ -14,20 +14,28 @@ def to_console(deals: list[Deal], limit: int = 25) -> str:
         return "No vehicles cleared the buy box.\n"
 
     lines = [
-        f"{'SCORE':>5}  {'VEHICLE':<34} {'MILES':>8} {'BID':>9} "
-        f"{'MAX BID':>9} {'ROOM':>8} {'CONF':>5}",
-        "-" * 88,
+        f"{'SCORE':>5}  {'VEHICLE':<32} {'MILES':>8} {'FORMAT':<11} "
+        f"{'PRICE':>9} {'MAX BID':>9} {'ROOM':>8}",
+        "-" * 92,
     ]
     for deal in deals[:limit]:
         l = deal.listing
-        lines.append(
-            f"{deal.score:5.0f}  {l.description[:34]:<34} "
-            f"{(l.odometer or 0):>8,} "
-            f"{(l.current_bid or 0):>9,.0f} "
-            f"{deal.max_bid:>9,.0f} "
-            f"{deal.headroom:>8,.0f} "
-            f"{deal.confidence:>5.2f}"
+        acq = deal.acquisition
+        fmt = acq.format.value if acq else "?"
+        # A price we can't execute at is not a price. Show it as unknown.
+        price = (
+            f"{acq.price:,.0f}" if acq and acq.price is not None else "reserve?"
         )
+        room = (
+            f"{deal.headroom:,.0f}" if acq and acq.price is not None else "--"
+        )
+        lines.append(
+            f"{deal.score:5.0f}  {l.description[:32]:<32} "
+            f"{(l.odometer or 0):>8,} {fmt:<11} {price:>9} "
+            f"{deal.max_bid:>9,.0f} {room:>8}"
+        )
+        if acq and acq.action:
+            lines.append(f"       > {acq.action}")
         if deal.speculative:
             lines.append(
                 f"       ~ SPECULATIVE: ${deal.max_bid:,.0f} worst case / "
@@ -118,6 +126,7 @@ HTML_HEAD = """<title>AuctionScan Results</title>
   .veh { font-weight:600; font-size:16px; }
   .score { font-variant-numeric:tabular-nums; font-weight:700; font-size:20px; }
   .meta { color:var(--muted); font-size:13px; margin-top:2px; }
+  .act { font-size:13px; font-weight:600; margin-top:3px; color:var(--good); }
   .nums { display:flex; gap:22px; margin-top:12px; flex-wrap:wrap;
           font-variant-numeric:tabular-nums; }
   .nums div { font-size:13px; } .nums b { display:block; font-size:16px; font-weight:600; }
@@ -158,6 +167,7 @@ def to_html(deals: list[Deal], path: str | Path, title: str = "AuctionScan Resul
     <div class="row">
       <div>
         <div class="veh">{esc(l.description)}</div>
+        <div class="act">{esc(d.acquisition.action) if d.acquisition else ""}</div>
         <div class="meta">{esc(l.vin)} &middot; {(l.odometer or 0):,} mi
           &middot; {esc(l.source)}{" &middot; " + esc(l.location) if l.location else ""}
           &middot; confidence {d.confidence:.0%}</div>
@@ -165,7 +175,9 @@ def to_html(deals: list[Deal], path: str | Path, title: str = "AuctionScan Resul
       <div class="score {cls}">{d.score:.0f}</div>
     </div>
     <div class="nums">
-      <div>Current bid<b>${(l.current_bid or 0):,.0f}</b></div>
+      <div>{"Buy now" if d.acquisition and d.acquisition.format.value == "buy_now" else "Price"}<b>{
+          f"${d.acquisition.price:,.0f}" if d.acquisition and d.acquisition.price is not None
+          else "reserve unknown"}</b></div>
       <div>Max bid<b>${d.max_bid:,.0f}</b></div>
       <div>Headroom<b class="{cls}">${d.headroom:,.0f}</b></div>
       <div>Costs<b>${d.total_costs:,.0f}</b></div>

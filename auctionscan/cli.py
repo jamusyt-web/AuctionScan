@@ -72,6 +72,19 @@ def cmd_scan(args: argparse.Namespace) -> int:
         transport_miles=args.transport_miles,
     )
 
+    if args.executable_only:
+        before = len(deals)
+        deals = [d for d in deals if d.executable]
+        print(f"Executable only: kept {len(deals)} of {before}", file=sys.stderr)
+
+    if args.formats:
+        wanted = {f.strip().lower() for f in args.formats.split(",") if f.strip()}
+        deals = [
+            d for d in deals
+            if d.acquisition and d.acquisition.format.value in wanted
+        ]
+        print(f"Format filter {sorted(wanted)}: {len(deals)} left", file=sys.stderr)
+
     if dropped and args.verbose:
         print(f"\nFiltered out {len(dropped)}:", file=sys.stderr)
         for note in dropped:
@@ -127,6 +140,17 @@ def main(argv: list[str] | None = None) -> int:
     scan.add_argument("--decode", action="store_true", help="Decode VINs via NHTSA")
     scan.add_argument("--transport-miles", type=int, default=None)
     scan.add_argument("--limit", type=int, default=25)
+    scan.add_argument(
+        "--executable-only", action="store_true",
+        help="Only cars you can buy at a known price now (Buy Now, Make Offer, "
+             "no-reserve, or reserve already met). Hides timed lots whose "
+             "reserve is hidden.",
+    )
+    scan.add_argument(
+        "--format", dest="formats", default="",
+        help="Comma-separated sale formats to keep: buy_now,make_offer,"
+             "absolute,timed,live",
+    )
     scan.add_argument("--out-csv", type=Path)
     scan.add_argument("--out-html", type=Path)
     scan.add_argument("-v", "--verbose", action="store_true")

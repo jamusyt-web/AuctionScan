@@ -28,14 +28,40 @@ buy_box:
 
 costs:
   buy_fee: 400              # your average auction buy fee
-  sell_fee: 300             # fee to re-run it if you wholesale it back out
   transport_per_mile: 1.15
   transport_minimum: 150
   default_transport_miles: 250
   floorplan_daily: 9.0
-  expected_days_held: 21
   baseline_recon: 450       # detail + safety check even on a clean car
   recon_safety_multiplier: 1.25   # photo estimates run light; pad them
+
+# Repairs you can do in-house, at your cost. This is your edge: the lane
+# prices a repair at what it costs the average buyer. Leave one null if you
+# can't price it -- the tool keeps market cost and demands more gross.
+capabilities:
+  ev_battery_pack: null
+  ev_drive_unit: null
+  engine: null
+  transmission: null
+  unpriced_powertrain_min_gross: 4000
+
+# A wholesale flip and a fix-and-retail are different businesses. Both get
+# scored; the better exit wins.
+exits:
+  - name: wholesale
+    enabled: true
+    days_held: 21
+    sell_fee: 300           # fee to re-run it through the lane
+    recon_multiplier: 1.0
+    target_gross: 1200
+    target_gross_pct: 0.06
+  - name: retail
+    enabled: false          # turn on if you retail what you buy
+    days_held: 45
+    sell_fee: 0
+    recon_multiplier: 1.6   # retail-ready costs more than lane-ready
+    target_gross: 2500
+    target_gross_pct: 0.10
 
 model: claude-opus-5
 use_ai_condition: true
