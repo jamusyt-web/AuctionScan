@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "AuctionScan",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Watches wholesale auction listings and tells you when one is worth buying.",
   "permissions": [
     "storage",

@@ -11,7 +11,8 @@
 (async () => {
   const base = (f) => chrome.runtime.getURL(`src/${f}`);
   const [{ extractListing, labeledMoney }, scoring, { siteFor, isDetailPage }, { loadConfig },
-         { pickRowElement, looksRendered, waitFor, isSafeDismissLabel, looksLikeDetailUrl }] =
+         { pickRowElement, looksRendered, waitFor, isSafeDismissLabel,
+           looksLikeDetailUrl, looksLikeVehicleRow }] =
     await Promise.all([
       import(base("extract.js")), import(base("scoring.js")),
       import(base("sites.js")), import(base("config.js")), import(base("page.js")),
@@ -78,20 +79,53 @@
     return all.filter((a) => looksLikeDetailUrl(a.href, location.origin));
   }
 
+  /** The element holding just this car, and its text. */
+  function rowFor(anchor) {
+    const row = pickRowElement(anchor, {
+      linkCount: (el) => {
+        try {
+          return [...(el.querySelectorAll?.("a[href]") || [])]
+            .filter((a) => isVehicleLink(a)).length;
+        } catch { return 0; }
+      },
+    });
+    return { text: (row?.innerText || anchor.innerText || "").trim() };
+  }
+
+  function isVehicleLink(a) {
+    try {
+      return site.detailUrl.test(a.href) || looksLikeDetailUrl(a.href, location.origin);
+    } catch { return false; }
+  }
+
   let lastUrl = location.href;
   await handle();
 
   // SPA navigation: the URL changes with no page load, so re-run on change.
-  const observer = new MutationObserver(() => {
-    if (location.href !== lastUrl) {
-      lastUrl = location.href;
-      handle().catch(() => {});
+  //
+  // Compare the PATH only and rate-limit. Comparing full URLs re-fired on
+  // every query-string tweak the app made to itself, which is why one page
+  // logged six times with different counts each pass.
+  const pathOf = (u) => { try { return new URL(u).pathname; } catch { return u; } };
+  let lastPath = pathOf(location.href);
+  let lastRun = Date.now();
+  let running = false;
+
+  async function maybeRehandle() {
+    const path = pathOf(location.href);
+    if (path === lastPath || running || Date.now() - lastRun < 4000) return;
+    lastPath = path;
+    lastUrl = location.href;
+    running = true;
+    try { await handle(); } catch { /* ignore */ } finally {
+      running = false;
+      lastRun = Date.now();
     }
-  });
+  }
+
+  const observer = new MutationObserver(maybeRehandle);
   observer.observe(document.documentElement, { childList: true, subtree: true });
-  addEventListener("popstate", () => {
-    if (location.href !== lastUrl) { lastUrl = location.href; handle().catch(() => {}); }
-  });
+  addEventListener("popstate", maybeRehandle);
 
   async function handle() {
     if (isDetailPage(location.href, site)) await handleDetail();
@@ -146,10 +180,16 @@
   // --- a page of results ----------------------------------------------------
 
   async function handleResults() {
+    // Waiting for "at least one link" was too weak: 37 links existed while
+    // the cards held 63 characters each, so triage ran on an unrendered page.
+    // Hold out for rows that actually read like vehicles.
     let dismissed = null;
     await waitFor(() => {
       dismissed ||= dismissInterstitial();
-      return detailLinks().length > 0;
+      const links = detailLinks();
+      if (!links.length) return false;
+      const sample = links.slice(0, 6).map((a) => rowFor(a).text);
+      return sample.filter(looksLikeVehicleRow).length >= Math.min(3, links.length);
     }, { timeoutMs: 25000 });
 
     // Anchor each row on its own link, so a candidate always carries the URL
@@ -161,16 +201,19 @@
       const href = a.href.split("#")[0];
       if (seen.has(href)) continue;
       seen.add(href);
-      const row = pickRowElement(a);
-      rows.push({ href, text: (row?.innerText || a.innerText || "").trim() });
+      rows.push({ href, ...rowFor(a) });
     }
 
     const candidates = [];
+    let rejected = 0;
     for (const { href, text } of rows) {
-      if (!text) continue;
+      // Reject page furniture before it can "pass" triage. Site navigation
+      // parsed as a car is worse than no candidate at all -- it spends a
+      // page open on nothing.
+      if (!looksLikeVehicleRow(text)) { rejected += 1; continue; }
       const listing = extractListing(text, site, { listRow: true });
       listing.url = href;
-      if (!listing.year && !listing.vin) continue;
+      if (!listing.year && !listing.vin) { rejected += 1; continue; }
       if (scoring.worthOpening(listing, cfg)) candidates.push({ href, listing });
     }
 
@@ -181,7 +224,7 @@
       diagnostics: {
         url: location.href, kind: "results", textLength: pageText().length,
         links: rows.length, parsedRows: rows.filter((r) => r.text).length,
-        candidates: candidates.length, dismissed,
+        candidates: candidates.length, rejected, dismissed,
         sampleRow: rows.find((r) => r.text)?.text.slice(0, 220) || "",
         // When no links are recognized, these are what the page actually had.
         // Paste them and the URL pattern can be fixed exactly.

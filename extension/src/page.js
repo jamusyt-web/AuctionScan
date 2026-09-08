@@ -4,23 +4,52 @@
 /**
  * Walk up from a link to the element that represents its result row.
  *
- * Written this way on purpose: guessing CSS class names for three
- * marketplaces without ever seeing their markup is how a parser silently
- * returns nothing. Every result row must contain a link to the car, so we
- * anchor on the link -- which we can identify by URL shape -- and climb until
- * we have an element holding a row's worth of text.
+ * Anchored on the link rather than a CSS class, because guessing class names
+ * for marketplaces whose markup you've never seen is how a parser silently
+ * returns nothing.
  *
- * `el` only needs `innerText` and `parentElement`.
+ * The stopping rule is link count, not text length. A result row contains
+ * exactly ONE vehicle link; the list containing it has dozens. Character
+ * count is useless as a boundary -- a sparse listing page can be under 3,000
+ * characters in total, so every ancestor "looks" row-sized and the climb runs
+ * all the way to the header. (That is exactly what happened on ACV: rows came
+ * back as "NOTIFICATIONS MENU / Jamus Killian / PLATINUM AUTO SALES".)
+ *
+ * `el` needs `innerText` and `parentElement`. `linkCount` counts vehicle
+ * links inside an element; without it this falls back to text size alone.
  */
-export function pickRowElement(el, { minChars = 40, maxChars = 3000, maxHops = 6 } = {}) {
+export function pickRowElement(
+  // minChars is deliberately low: a real row can be as terse as
+  // "2021 Ford F-150 62,400 mi $18,500". Link count is what actually stops
+  // the climb, so this only has to exclude a bare link label.
+  el, { minChars = 24, maxChars = 3000, maxHops = 8, linkCount = null } = {},
+) {
   let best = null;
   for (let i = 0; i < maxHops && el; i++) {
+    // Stop before the element that holds more than this one car.
+    if (linkCount && linkCount(el) > 1) break;
     const text = (el.innerText || "").trim();
-    if (text.length > maxChars) break;      // climbed into the whole list
-    if (text.length >= minChars) best = el; // keep the largest still row-sized
+    if (text.length > maxChars) break;
+    if (text.length >= minChars) best = el;
     el = el.parentElement;
   }
   return best;
+}
+
+/**
+ * Does this text actually describe a vehicle?
+ *
+ * Triage ran on page furniture and "passed" 16 cars that were really the
+ * site header. A row has to carry a plausible model year plus either
+ * mileage or a price before it is worth believing.
+ */
+export function looksLikeVehicleRow(text, currentYear = 2026) {
+  const t = String(text || "");
+  const year = t.match(/\b(19[89]\d|20[0-4]\d)\b/);
+  if (!year || Number(year[1]) > currentYear + 1) return false;
+  const hasMiles = /[0-9][0-9,]{2,}\s*(?:mi\b|miles\b)/i.test(t);
+  const hasMoney = /\$\s*[0-9][0-9,]{2,}/.test(t);
+  return hasMiles || hasMoney;
 }
 
 /** Has the app actually rendered, or are we looking at an empty shell? */

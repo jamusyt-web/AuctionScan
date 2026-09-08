@@ -22,7 +22,8 @@ async function render() {
   $("diag").textContent = diags.length
     ? diags.slice(0, 8).map((d) =>
         d.kind === "results"
-          ? `results  ${d.links ?? 0} listings, ${d.candidates ?? 0} passed triage, ` +
+          ? `results  ${d.links ?? 0} listings, ${d.candidates ?? 0} passed triage` +
+            `${d.rejected ? `, ${d.rejected} rejected as non-vehicle` : ""}, ` +
             `${d.textLength} chars${d.dismissed ? ` [clicked "${d.dismissed}"]` : ""}` +
             `\n  ${(d.sampleRow || "").slice(0, 120)}` +
             (d.sampleHrefs?.length

@@ -21,6 +21,9 @@ to your browser.
 
 ## Install
 
+Clone the repo and load this folder — then updates are `git pull` plus the
+reload button, with no reinstall. See `UPDATING.md`.
+
 1. `chrome://extensions` → enable **Developer mode**
 2. **Load unpacked** → select this `extension/` folder
 3. Click the icon → **Setup**

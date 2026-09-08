@@ -3,6 +3,7 @@ import { test } from "node:test";
 
 import {
   pickRowElement, looksRendered, waitFor, isSafeDismissLabel, looksLikeDetailUrl,
+  looksLikeVehicleRow,
 } from "../src/page.js";
 
 // A fake element chain: link -> row -> list -> body.
@@ -98,4 +99,50 @@ test("does not treat navigation links as vehicles", () => {
                       "https://x.com/about/team"]) {
     assert.equal(looksLikeDetailUrl(href), false, href);
   }
+});
+
+// --- the ACV failure: climbing past the row into the page header -----------
+
+test("stops at the row, not the list, using link count", () => {
+  // The shape that broke: a sparse page where every ancestor is under the
+  // character cap, so text size alone never stops the climb.
+  const header = { innerText: "NOTIFICATIONS MENU\nJamus Killian\nPLATINUM AUTO SALES", parentElement: null };
+  const page = { innerText: "NOTIFICATIONS MENU\nJamus Killian\nPLATINUM AUTO SALES\n" +
+    "2021 Tesla Model Y 143,991 mi $11,500", parentElement: null };
+  const list = { innerText: "2021 Tesla Model Y 143,991 mi $11,500", parentElement: page };
+  const row = { innerText: "2021 Tesla Model Y Performance 143,991 mi $11,500", parentElement: list };
+  const link = { innerText: "2021 Tesla Model Y", parentElement: row };
+
+  const links = new Map([[link, 1], [row, 1], [list, 37], [page, 37], [header, 0]]);
+  const picked = pickRowElement(link, { linkCount: (el) => links.get(el) ?? 0 });
+
+  assert.equal(picked, row);
+  assert.notEqual(picked, list);
+  assert.notEqual(picked, page);
+});
+
+test("without a link count it still refuses oversized containers", () => {
+  const list = { innerText: "z".repeat(9000), parentElement: null };
+  const row = { innerText: "2021 Ford F-150 62,400 mi $18,500", parentElement: list };
+  assert.equal(pickRowElement({ innerText: "F-150", parentElement: row }), row);
+});
+
+// --- rejecting page furniture ---------------------------------------------
+
+test("site navigation is not a vehicle row", () => {
+  assert.equal(looksLikeVehicleRow(
+    "NOTIFICATIONS MENU\nnotifications_none\nhelp_outline\nJ\nJamus Killian\n" +
+    "PLATINUM AUTO SALES OF CNY INC\nmenu"), false);
+  assert.equal(looksLikeVehicleRow("emoji_events\n454 pts."), false);
+  assert.equal(looksLikeVehicleRow(""), false);
+});
+
+test("a real row is accepted on miles or on price", () => {
+  assert.equal(looksLikeVehicleRow("2021 Tesla Model Y Performance  143,991 mi"), true);
+  assert.equal(looksLikeVehicleRow("2020 Honda Accord Sport  $9,900"), true);
+  assert.equal(looksLikeVehicleRow("2021 Toyota RAV4 XLE AWD"), false);  // no miles, no price
+});
+
+test("a year alone from unrelated text is not enough", () => {
+  assert.equal(looksLikeVehicleRow("Copyright 2021 ACV Auctions"), false);
 });
