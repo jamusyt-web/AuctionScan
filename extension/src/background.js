@@ -44,6 +44,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg.type === "detail" || msg.type === "detailFailed") {
       const resolve = pending.get(sender.tab?.id);
       if (resolve) { pending.delete(sender.tab.id); resolve(msg); }
+      await saveDiagnostics(msg.diagnostics);
       // A car you opened yourself still counts as a find.
       if (msg.type === "detail") await recordDeal(msg.deal, msg.url, await loadConfig());
       sendResponse({ ok: true });
@@ -67,7 +68,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       return;
     }
     if (msg.type === "getState") {
-      sendResponse(await chrome.storage.local.get(["finds", "sweepStatus", "lastError"]));
+      sendResponse(await chrome.storage.local.get(
+        ["finds", "sweepStatus", "lastError", "diagnostics"]));
       return;
     }
     if (msg.type === "clearFinds") {
@@ -100,17 +102,28 @@ async function runSweep(cfg) {
       await setStatus({ running: true, started, opened, found, note: `Scanning ${short(url)}` });
 
       const results = await visit(url, "results");
-      if (!results) continue;
+      await saveDiagnostics(results?.diagnostics);
+      if (!results) {
+        await setStatus({ running: true, started, opened, found,
+          note: `No response from ${short(url)} -- page may not have rendered` });
+        continue;
+      }
 
-      // Triage already happened in the content script; these are the links
-      // worth the cost of a page open.
-      const links = dedupeLinks(results.links, results.candidates);
-      const fresh = await filterSeen(links);
+      // Each candidate carries the URL that opens it, so there is no guessing
+      // about which link belongs to which row.
+      const links = (results.candidates || []).map((c) => c.href).filter(Boolean);
+      const fresh = await filterSeen([...new Set(links)]);
+      if (!links.length) {
+        await setStatus({ running: true, started, opened, found,
+          note: `${short(url)}: ${results.diagnostics?.links ?? 0} listings seen, ` +
+                `none cleared triage` });
+      }
 
       for (const link of fresh) {
         if (opened >= cfg.maxOpensPerSweep) break;
         await sleep(jitter(cfg.openDelayMs));
         const detail = await visit(link, "detail");
+        await saveDiagnostics(detail?.diagnostics);
         opened += 1;
         await markSeen(link);
         if (detail?.deal) {
@@ -130,23 +143,49 @@ async function runSweep(cfg) {
   }
 }
 
-/** Open a URL in a background tab, wait for its content script, close it. */
+/**
+ * Open a URL, wait for its content script, close the tab.
+ *
+ * Hidden tabs are throttled and some single-page apps never paint in one. If
+ * a page comes back empty we retry it once with the tab focused before
+ * writing it off -- that turns a silent nothing into a real read.
+ */
 async function visit(url, expect) {
+  const first = await visitOnce(url, expect, false);
+  if (first && !emptyPage(first)) return first;
+  const second = await visitOnce(url, expect, true);
+  return second && !emptyPage(second) ? second : (second || first);
+}
+
+function emptyPage(msg) {
+  const d = msg?.diagnostics;
+  return !d || (d.textLength ?? 0) < 400;
+}
+
+async function visitOnce(url, expect, activate) {
   if (!siteFor(url)) return null;
-  const tab = await chrome.tabs.create({ url, active: false });
+  const tab = await chrome.tabs.create({ url, active: activate });
   try {
     return await new Promise((resolve) => {
       const timer = setTimeout(() => { pending.delete(tab.id); resolve(null); }, PAGE_TIMEOUT_MS);
       pending.set(tab.id, (msg) => {
         clearTimeout(timer);
-        // "detailFailed" resolves null: the page loaded but nothing scoreable
-        // came off it, which is a miss to move past, not an error to retry.
-        resolve(msg.type === expect ? msg : null);
+        // "detailFailed" carries diagnostics but no deal: a miss to move past,
+        // not an error to retry.
+        resolve(msg.type === expect ? msg : (msg.type === "detailFailed" ? msg : null));
       });
     });
   } finally {
     await chrome.tabs.remove(tab.id).catch(() => {});
   }
+}
+
+/** Keep the last few page reads so the popup can show what was seen. */
+async function saveDiagnostics(d) {
+  if (!d) return;
+  const { diagnostics = [] } = await chrome.storage.local.get("diagnostics");
+  diagnostics.unshift({ ...d, at: Date.now() });
+  await chrome.storage.local.set({ diagnostics: diagnostics.slice(0, 20) });
 }
 
 async function recordDeal(deal, url, cfg) {
@@ -185,14 +224,6 @@ chrome.notifications.onClicked.addListener(async (id) => {
 });
 
 // --- helpers ---------------------------------------------------------------
-
-function dedupeLinks(links = [], candidates = []) {
-  // When a results page gives us more links than triaged candidates, cap the
-  // list so a layout we failed to split doesn't turn into a crawl.
-  const limit = Math.max(candidates.length, 0);
-  const unique = [...new Set(links)];
-  return limit ? unique.slice(0, Math.max(limit, 10)) : [];
-}
 
 async function filterSeen(links) {
   const { seen = {} } = await chrome.storage.local.get("seen");

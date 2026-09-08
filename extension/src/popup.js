@@ -16,6 +16,19 @@ async function render() {
     $("status").textContent += `  ⚠ ${state.lastError.message}`;
   }
 
+  // What the last few page reads actually saw. When nothing is found, this
+  // is the difference between "no good cars" and "couldn't read the page".
+  const diags = state?.diagnostics || [];
+  $("diag").textContent = diags.length
+    ? diags.slice(0, 8).map((d) =>
+        d.kind === "results"
+          ? `results  ${d.links ?? 0} listings, ${d.candidates ?? 0} passed triage, ` +
+            `${d.textLength} chars\n  ${(d.sampleRow || "").slice(0, 120)}`
+          : `detail   ${d.textLength} chars  vin=${d.vin || "-"} yr=${d.year || "-"} ` +
+            `mi=${d.odometer || "-"} mmr=${d.mmr || "-"} bid=${d.currentBid || "-"}`
+      ).join("\n")
+    : "Nothing read yet.";
+
   const list = $("list");
   list.innerHTML = "";
   if (!finds.length) {
