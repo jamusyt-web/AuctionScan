@@ -121,3 +121,52 @@ export function looksLikeDetailUrl(href, origin = "") {
   return path.split("/").some((seg) => /^[a-f0-9]{12,}$/i.test(seg) || /^\d{5,}$/.test(seg)
     || /^[a-z0-9]{8,}-[a-z0-9-]{4,}$/i.test(seg));
 }
+
+// --- telling the results grid from the carousels ---------------------------
+
+/**
+ * Keep only the links belonging to the page's main results list.
+ *
+ * A marketplace page shows more than one set of cars: the search results you
+ * filtered for, plus "recommended for you" and "similar vehicles" rails. They
+ * are indistinguishable by URL -- ACV's own `was_recommendation` parameter
+ * exists precisely because it needs to track which rail a click came from.
+ *
+ * The results grid is the biggest group, so group the links by their list
+ * container and keep the largest. Selector-free, and it survives a redesign.
+ *
+ * `containerOf(link)` returns the nearest ancestor holding more than one
+ * vehicle link.
+ */
+export function mainListLinks(links, containerOf) {
+  if (!links || links.length < 2) return links || [];
+
+  const groups = new Map();
+  for (const link of links) {
+    const key = containerOf(link) ?? null;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(link);
+  }
+  if (groups.size <= 1) return links;
+
+  let best = null;
+  for (const arr of groups.values()) {
+    if (!best || arr.length > best.length) best = arr;
+  }
+  // Only trust the split when one group is clearly the list. A near-tie
+  // means the grouping didn't find a real boundary; keep everything rather
+  // than silently discarding half the page's inventory.
+  const rest = [...groups.values()].filter((a) => a !== best);
+  const runnerUp = rest.reduce((m, a) => Math.max(m, a.length), 0);
+  return best.length >= Math.max(2, runnerUp * 2) ? best : links;
+}
+
+/** Sizes of each link group, for diagnostics. */
+export function listGroupSizes(links, containerOf) {
+  const groups = new Map();
+  for (const link of links || []) {
+    const key = containerOf(link) ?? null;
+    groups.set(key, (groups.get(key) || 0) + 1);
+  }
+  return [...groups.values()].sort((a, b) => b - a);
+}

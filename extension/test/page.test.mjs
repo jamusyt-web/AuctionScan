@@ -3,7 +3,7 @@ import { test } from "node:test";
 
 import {
   pickRowElement, looksRendered, waitFor, isSafeDismissLabel, looksLikeDetailUrl,
-  looksLikeVehicleRow,
+  looksLikeVehicleRow, mainListLinks, listGroupSizes,
 } from "../src/page.js";
 
 // A fake element chain: link -> row -> list -> body.
@@ -145,4 +145,54 @@ test("a real row is accepted on miles or on price", () => {
 
 test("a year alone from unrelated text is not enough", () => {
   assert.equal(looksLikeVehicleRow("Copyright 2021 ACV Auctions"), false);
+});
+
+// --- separating the results grid from recommendation rails -----------------
+
+test("keeps the results grid and drops a recommendations carousel", () => {
+  const grid = "GRID", rail = "RAIL";
+  const links = [
+    ...Array.from({ length: 37 }, (_, i) => ({ id: `car${i}`, box: grid })),
+    ...Array.from({ length: 6 }, (_, i) => ({ id: `rec${i}`, box: rail })),
+  ];
+  const kept = mainListLinks(links, (l) => l.box);
+  assert.equal(kept.length, 37);
+  assert.ok(kept.every((l) => l.box === grid));
+});
+
+test("keeps everything when the split is ambiguous", () => {
+  // Two similarly sized groups means the boundary wasn't found. Throwing
+  // half the inventory away on a guess is worse than scanning both.
+  const links = [
+    ...Array.from({ length: 10 }, () => ({ box: "A" })),
+    ...Array.from({ length: 8 }, () => ({ box: "B" })),
+  ];
+  assert.equal(mainListLinks(links, (l) => l.box).length, 18);
+});
+
+test("a single group is left alone", () => {
+  const links = Array.from({ length: 12 }, () => ({ box: "ONLY" }));
+  assert.equal(mainListLinks(links, (l) => l.box).length, 12);
+});
+
+test("handles zero and one link without grouping", () => {
+  assert.deepEqual(mainListLinks([], () => null), []);
+  const one = [{ box: "A" }];
+  assert.deepEqual(mainListLinks(one, (l) => l.box), one);
+});
+
+test("reports group sizes largest first", () => {
+  const links = [{ box: "A" }, { box: "A" }, { box: "A" }, { box: "B" }];
+  assert.deepEqual(listGroupSizes(links, (l) => l.box), [3, 1]);
+});
+
+test("ACV's real vehicle URL is recognized by the site pattern", async () => {
+  const { SITES } = await import("../src/sites.js");
+  assert.equal(
+    SITES.acv.detailUrl.test("https://app.acvauctions.com/auction/16312139?was_recommendation=false"),
+    true);
+  // The marketplace list itself must not look like a vehicle page.
+  assert.equal(
+    SITES.acv.detailUrl.test("https://app.acvauctions.com/marketplace?p=make_offer"),
+    false);
 });

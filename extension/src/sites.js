@@ -41,7 +41,10 @@ export const SITES = {
   acv: {
     name: "acv",
     match: /acvauctions\.com/i,
-    detailUrl: /\/vehicle|\/listing|\/auctions\//i,
+    // ACV's vehicle page is /auction/<id> -- singular. The plural pattern
+    // that used to be here never matched, so links were only ever found by
+    // the generic fallback, which also sweeps up recommendation carousels.
+    detailUrl: /\/auction\/\d+|\/vehicle\/|\/listing\//i,
     rowSelector: "[data-testid*='vehicle'], [class*='vehicle-card'], [class*='listing-card'], article",
     // ACV only populates the VIN once a car is opened, so results-page rows
     // are triaged on year/make/model/miles/price alone. See scoring.worthOpening.

@@ -12,7 +12,7 @@
   const base = (f) => chrome.runtime.getURL(`src/${f}`);
   const [{ extractListing, labeledMoney }, scoring, { siteFor, isDetailPage }, { loadConfig },
          { pickRowElement, looksRendered, waitFor, isSafeDismissLabel,
-           looksLikeDetailUrl, looksLikeVehicleRow }] =
+           looksLikeDetailUrl, looksLikeVehicleRow, mainListLinks, listGroupSizes }] =
     await Promise.all([
       import(base("extract.js")), import(base("scoring.js")),
       import(base("sites.js")), import(base("config.js")), import(base("page.js")),
@@ -82,14 +82,25 @@
   /** The element holding just this car, and its text. */
   function rowFor(anchor) {
     const row = pickRowElement(anchor, {
-      linkCount: (el) => {
-        try {
-          return [...(el.querySelectorAll?.("a[href]") || [])]
-            .filter((a) => isVehicleLink(a)).length;
-        } catch { return 0; }
-      },
+      linkCount: countVehicleLinks,
     });
     return { text: (row?.innerText || anchor.innerText || "").trim() };
+  }
+
+  /** Nearest ancestor holding more than one vehicle link: the link's list. */
+  function listContainerOf(anchor) {
+    let el = anchor.parentElement;
+    for (let i = 0; i < 10 && el; i++) {
+      if (countVehicleLinks(el) > 1) return el;
+      el = el.parentElement;
+    }
+    return null;
+  }
+
+  function countVehicleLinks(el) {
+    try {
+      return [...(el.querySelectorAll?.("a[href]") || [])].filter(isVehicleLink).length;
+    } catch { return 0; }
   }
 
   function isVehicleLink(a) {
@@ -186,7 +197,7 @@
     let dismissed = null;
     await waitFor(() => {
       dismissed ||= dismissInterstitial();
-      const links = detailLinks();
+      const links = mainListLinks(detailLinks(), listContainerOf);
       if (!links.length) return false;
       const sample = links.slice(0, 6).map((a) => rowFor(a).text);
       return sample.filter(looksLikeVehicleRow).length >= Math.min(3, links.length);
@@ -195,9 +206,16 @@
     // Anchor each row on its own link, so a candidate always carries the URL
     // that opens it. Guessing row CSS classes for three sites sight-unseen is
     // how this returns nothing.
+    // A marketplace page carries several sets of cars -- your filtered
+    // results plus "recommended" rails. They look identical by URL, which is
+    // how a car you never searched for ended up being opened.
+    const allLinks = detailLinks();
+    const groupSizes = listGroupSizes(allLinks, listContainerOf);
+    const gridLinks = mainListLinks(allLinks, listContainerOf);
+
     const seen = new Set();
     const rows = [];
-    for (const a of detailLinks()) {
+    for (const a of gridLinks) {
       const href = a.href.split("#")[0];
       if (seen.has(href)) continue;
       seen.add(href);
@@ -223,7 +241,8 @@
       candidates,
       diagnostics: {
         url: location.href, kind: "results", textLength: pageText().length,
-        links: rows.length, parsedRows: rows.filter((r) => r.text).length,
+        links: rows.length, allLinks: allLinks.length, groupSizes,
+        parsedRows: rows.filter((r) => r.text).length,
         candidates: candidates.length, rejected, dismissed,
         sampleRow: rows.find((r) => r.text)?.text.slice(0, 220) || "",
         // When no links are recognized, these are what the page actually had.
@@ -231,6 +250,11 @@
         sampleHrefs: rows.length ? [] : [...new Set(
           [...document.querySelectorAll("a[href]")].map((a) => a.getAttribute("href"))
         )].filter(Boolean).slice(0, 10),
+        // What it decided to open, so a wrong pick is visible immediately.
+        picked: candidates.slice(0, 5).map((c) => ({
+          href: c.href, text: (c.listing.description || "").slice(0, 70)
+            || `${c.listing.year || ""} ${c.listing.make || ""} ${c.listing.model || ""}`.trim(),
+        })),
       },
     });
   }

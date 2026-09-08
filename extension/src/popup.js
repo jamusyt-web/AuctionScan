@@ -26,6 +26,14 @@ async function render() {
             `${d.rejected ? `, ${d.rejected} rejected as non-vehicle` : ""}, ` +
             `${d.textLength} chars${d.dismissed ? ` [clicked "${d.dismissed}"]` : ""}` +
             `\n  ${(d.sampleRow || "").slice(0, 120)}` +
+            (d.groupSizes?.length > 1
+              ? `\n  link groups on page: ${d.groupSizes.join(", ")} ` +
+                `(kept ${d.links} of ${d.allLinks})`
+              : "") +
+            (d.picked?.length
+              ? `\n  opening:\n   ` + d.picked.map((p) =>
+                  `${p.text || "?"}  ${p.href.slice(-42)}`).join("\n   ")
+              : "") +
             (d.sampleHrefs?.length
               ? `\n  NO LINKS MATCHED. hrefs on page:\n   ` +
                 d.sampleHrefs.slice(0, 6).join("\n   ")
