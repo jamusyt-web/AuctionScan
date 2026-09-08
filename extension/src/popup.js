@@ -23,9 +23,15 @@ async function render() {
     ? diags.slice(0, 8).map((d) =>
         d.kind === "results"
           ? `results  ${d.links ?? 0} listings, ${d.candidates ?? 0} passed triage, ` +
-            `${d.textLength} chars\n  ${(d.sampleRow || "").slice(0, 120)}`
+            `${d.textLength} chars${d.dismissed ? ` [clicked "${d.dismissed}"]` : ""}` +
+            `\n  ${(d.sampleRow || "").slice(0, 120)}` +
+            (d.sampleHrefs?.length
+              ? `\n  NO LINKS MATCHED. hrefs on page:\n   ` +
+                d.sampleHrefs.slice(0, 6).join("\n   ")
+              : "")
           : `detail   ${d.textLength} chars  vin=${d.vin || "-"} yr=${d.year || "-"} ` +
-            `mi=${d.odometer || "-"} mmr=${d.mmr || "-"} bid=${d.currentBid || "-"}`
+            `mi=${d.odometer || "-"} mmr=${d.mmr || "-"} bid=${d.currentBid || "-"}` +
+            (d.dismissed ? ` [clicked "${d.dismissed}"]` : "")
       ).join("\n")
     : "Nothing read yet.";
 

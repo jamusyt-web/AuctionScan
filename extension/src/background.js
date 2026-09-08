@@ -14,6 +14,9 @@ const PAGE_TIMEOUT_MS = 30000;
 
 // Resolvers for detail pages currently being awaited, keyed by tab id.
 const pending = new Map();
+// Valuation numbers reported by the AccuTrade sidebar frame, keyed by tab id.
+// Frames of one page share a tab id, which is how the main frame finds them.
+const panels = new Map();
 
 chrome.runtime.onInstalled.addListener(async () => {
   const cfg = await loadConfig();
@@ -41,10 +44,19 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   (async () => {
+    if (msg.type === "panel") {
+      if (sender.tab?.id != null) panels.set(sender.tab.id, msg.data);
+      sendResponse({ ok: true });
+      return;
+    }
+    if (msg.type === "getPanel") {
+      sendResponse({ data: panels.get(sender.tab?.id) || null });
+      return;
+    }
     if (msg.type === "detail" || msg.type === "detailFailed") {
       const resolve = pending.get(sender.tab?.id);
       if (resolve) { pending.delete(sender.tab.id); resolve(msg); }
-      await saveDiagnostics(msg.diagnostics);
+      else await saveDiagnostics(msg.diagnostics);   // a page you opened yourself
       // A car you opened yourself still counts as a find.
       if (msg.type === "detail") await recordDeal(msg.deal, msg.url, await loadConfig());
       sendResponse({ ok: true });
@@ -53,6 +65,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg.type === "results") {
       const resolve = pending.get(sender.tab?.id);
       if (resolve) { pending.delete(sender.tab.id); resolve(msg); }
+      else await saveDiagnostics(msg.diagnostics);
       sendResponse({ ok: true });
       return;
     }
@@ -176,6 +189,7 @@ async function visitOnce(url, expect, activate) {
       });
     });
   } finally {
+    panels.delete(tab.id);
     await chrome.tabs.remove(tab.id).catch(() => {});
   }
 }

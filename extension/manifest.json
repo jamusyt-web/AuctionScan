@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "AuctionScan",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "description": "Watches wholesale auction listings and tells you when one is worth buying.",
   "permissions": [
     "storage",
@@ -15,7 +15,9 @@
     "https://*.adesa.com/*",
     "https://*.openlane.com/*",
     "https://*.manheim.com/*",
-    "https://*.acvauctions.com/*"
+    "https://*.acvauctions.com/*",
+    "https://*.accu-trade.com/*",
+    "https://*.accutrade.com/*"
   ],
   "background": {
     "service_worker": "src/background.js",
@@ -27,12 +29,15 @@
         "https://*.adesa.com/*",
         "https://*.openlane.com/*",
         "https://*.manheim.com/*",
-        "https://*.acvauctions.com/*"
+        "https://*.acvauctions.com/*",
+        "https://*.accu-trade.com/*",
+        "https://*.accutrade.com/*"
       ],
       "js": [
         "src/content.js"
       ],
-      "run_at": "document_idle"
+      "run_at": "document_idle",
+      "all_frames": true
     }
   ],
   "web_accessible_resources": [
@@ -44,7 +49,9 @@
         "https://*.adesa.com/*",
         "https://*.openlane.com/*",
         "https://*.manheim.com/*",
-        "https://*.acvauctions.com/*"
+        "https://*.acvauctions.com/*",
+        "https://*.accu-trade.com/*",
+        "https://*.accutrade.com/*"
       ]
     }
   ],

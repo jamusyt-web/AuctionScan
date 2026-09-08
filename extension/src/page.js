@@ -47,3 +47,48 @@ export async function waitFor(check, { timeoutMs = 20000, intervalMs = 400 } = {
     await new Promise((r) => setTimeout(r, intervalMs));
   }
 }
+
+// --- dismissing the interstitial ------------------------------------------
+
+// Buttons that are safe to click to clear a "click OK to continue" dialog.
+// Matched against the WHOLE trimmed label, never a substring, so "OK" matches
+// but "OK, place my bid" does not.
+const SAFE_DISMISS = [
+  /^ok$/i, /^okay$/i, /^accept$/i, /^accept all$/i, /^i agree$/i, /^agree$/i,
+  /^continue$/i, /^got it$/i, /^close$/i, /^dismiss$/i, /^understood$/i,
+  /^acknowledge$/i, /^i understand$/i, /^proceed$/i, /^enter$/i, /^next$/i,
+];
+
+// Anything that could commit money or change state. Checked first and wins
+// outright -- on an auction site an accidental click is not a cosmetic bug.
+const NEVER_CLICK =
+  /bid|buy|offer|purchase|checkout|pay|invoice|submit|confirm|delete|remove|sell|list|arbitrat|transport|finance/i;
+
+export function isSafeDismissLabel(label) {
+  const text = String(label || "").trim();
+  if (!text || text.length > 24) return false;
+  if (NEVER_CLICK.test(text)) return false;
+  return SAFE_DISMISS.some((re) => re.test(text));
+}
+
+// --- recognizing a vehicle link -------------------------------------------
+
+/**
+ * Does this URL look like a vehicle detail page?
+ *
+ * Fallback for when a site's specific pattern misses. Requires a path segment
+ * that reads like an id -- a long hex/alphanumeric slug or a run of digits --
+ * under a vehicle-ish path, which is what every marketplace's VDP URL is.
+ */
+export function looksLikeDetailUrl(href, origin = "") {
+  let path;
+  try {
+    const u = new URL(href, origin || undefined);
+    path = u.pathname;
+  } catch { return false; }
+  if (!/\/(details?|vehicles?|listings?|lots?|items?|auctions?|inventory|cars?)\//i.test(path)) {
+    return false;
+  }
+  return path.split("/").some((seg) => /^[a-f0-9]{12,}$/i.test(seg) || /^\d{5,}$/.test(seg)
+    || /^[a-z0-9]{8,}-[a-z0-9-]{4,}$/i.test(seg));
+}
