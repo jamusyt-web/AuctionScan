@@ -16,6 +16,13 @@ async function render() {
     $("status").textContent += `  ⚠ ${state.lastError.message}`;
   }
 
+  // The hand-off file the hourly Claude agent reads.
+  const px = state?.picksExport;
+  $("picks").textContent = px
+    ? `Picks for Claude: ${px.count} · saved ${new Date(px.at).toLocaleTimeString([], {
+        hour: "numeric", minute: "2-digit" })} to Downloads/AuctionScan`
+    : "Picks for Claude: not saved yet — runs after each sweep.";
+
   // What the last few page reads actually saw. When nothing is found, this
   // is the difference between "no good cars" and "couldn't read the page".
   const diags = state?.diagnostics || [];

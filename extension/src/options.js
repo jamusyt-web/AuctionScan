@@ -25,7 +25,32 @@ const FIELDS = {
   c_defaultTransportMiles: "costs.defaultTransportMiles",
   c_baselineRecon: "costs.baselineRecon",
   c_reconSafetyMultiplier: "costs.reconSafetyMultiplier",
+  exportPicks: "exportPicks", pickSlack: "pickSlack",
 };
+
+// Sale formats you buy. Each checkbox id is "fmt_" + the format name.
+const FORMATS = ["buy_now", "make_offer", "absolute", "timed", "live"];
+
+// Exit channels are a list in the config, so they're addressed by name.
+// id -> [exit name, field]
+const EXIT_FIELDS = {
+  ex_wholesale_sellFee: ["wholesale", "sellFee"],
+  ex_wholesale_daysHeld: ["wholesale", "daysHeld"],
+  ex_wholesale_targetGross: ["wholesale", "targetGross"],
+  ex_retail_enabled: ["retail", "enabled"],
+  ex_retail_daysHeld: ["retail", "daysHeld"],
+  ex_retail_targetGross: ["retail", "targetGross"],
+};
+
+function exitNamed(cfg, name) {
+  cfg.exits ||= structuredClone(DEFAULT_CONFIG.exits);
+  let ex = cfg.exits.find((e) => e.name === name);
+  if (!ex) {
+    ex = structuredClone(DEFAULT_CONFIG.exits.find((e) => e.name === name) || { name });
+    cfg.exits.push(ex);
+  }
+  return ex;
+}
 
 const get = (obj, path) => path.split(".").reduce((o, k) => o?.[k], obj);
 function set(obj, path, value) {
@@ -45,6 +70,17 @@ async function load() {
   }
   $("sweepUrls").value = (cfg.sweepUrls || []).join("\n");
   $("bb_excludedMakes").value = (cfg.buyBox.excludedMakes || []).join(", ");
+  for (const f of FORMATS) {
+    const el = $(`fmt_${f}`);
+    if (el) el.checked = (cfg.formats || []).includes(f);
+  }
+  for (const [id, [name, key]] of Object.entries(EXIT_FIELDS)) {
+    const el = $(id);
+    if (!el) continue;
+    const v = exitNamed(cfg, name)[key];
+    if (el.type === "checkbox") el.checked = v !== false;
+    else el.value = v ?? "";
+  }
 }
 
 $("save").onclick = async () => {
@@ -57,8 +93,12 @@ $("save").onclick = async () => {
   cfg.sweepUrls = $("sweepUrls").value.split("\n").map((s) => s.trim()).filter(Boolean);
   cfg.buyBox.excludedMakes = $("bb_excludedMakes").value
     .split(",").map((s) => s.trim()).filter(Boolean);
-  // Keep the exits from defaults; they aren't editable here yet.
-  cfg.exits ||= DEFAULT_CONFIG.exits;
+  cfg.formats = FORMATS.filter((f) => $(`fmt_${f}`)?.checked);
+  for (const [id, [name, key]] of Object.entries(EXIT_FIELDS)) {
+    const el = $(id);
+    if (!el) continue;
+    exitNamed(cfg, name)[key] = el.type === "checkbox" ? el.checked : num(el.value);
+  }
 
   await saveConfig(cfg);
   // The alarm period lives in the service worker; nudge it to re-read.

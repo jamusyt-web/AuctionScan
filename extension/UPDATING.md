@@ -45,6 +45,13 @@ git checkout claude/wholesale-car-auction-finder-c46t91
 
 Load unpacked → `AuctionScan\extension`.
 
+## 0.2.0
+
+Adds the popup and Setup pages, which were never saved to the repo before (a
+`.gitignore` rule meant for reports caught them), the Buy Now / Make Offer
+filter, and the picks hand-off to the hourly agent. No new permissions: pull
+and hit reload.
+
 ## Checking which version is loaded
 
 The version shows on the extension's card in `chrome://extensions`. If it

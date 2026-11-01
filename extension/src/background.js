@@ -7,6 +7,7 @@
 
 import { loadConfig } from "./config.js";
 import { siteFor } from "./sites.js";
+import { PICKS_FILENAME, buildPicksPayload, formatAllowed, shouldExport } from "./picks.js";
 
 const SWEEP_ALARM = "auctionscan-sweep";
 const SEEN_TTL_MS = 6 * 60 * 60 * 1000;   // re-check a car twice a day
@@ -82,7 +83,16 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     }
     if (msg.type === "getState") {
       sendResponse(await chrome.storage.local.get(
-        ["finds", "sweepStatus", "lastError", "diagnostics"]));
+        ["finds", "sweepStatus", "lastError", "diagnostics", "picksExport"]));
+      return;
+    }
+    if (msg.type === "exportPicksNow") {
+      const cfg = await loadConfig();
+      const result = await exportPicks(cfg, { force: true }).catch((err) => {
+        reportError(err);
+        return null;
+      });
+      sendResponse({ ok: Boolean(result), result });
       return;
     }
     if (msg.type === "clearFinds") {
@@ -153,7 +163,63 @@ async function runSweep(cfg) {
   } catch (err) {
     await setStatus({ running: false, started, opened, found, note: `Stopped: ${err.message}` });
     throw err;
+  } finally {
+    // Hand the picks to the hourly agent even after a partial sweep: what
+    // was read is still good, and the timestamp tells it how fresh it is.
+    if (cfg.exportPicks !== false) {
+      await exportPicks(cfg, {
+        lastSweep: { started: iso(started), finished: iso(Date.now()), opened, found },
+      }).catch(reportError);
+    }
   }
+}
+
+// --- hand-off to the hourly agent -----------------------------------------
+
+/**
+ * Save the current picks to Downloads/AuctionScan/picks.json.
+ *
+ * Chrome extensions can only write files through downloads, so that's the
+ * route. The entry is erased from the downloads list once it lands (the file
+ * stays), and an unchanged list isn't re-saved except as a heartbeat.
+ */
+async function exportPicks(cfg, { lastSweep = null, force = false } = {}) {
+  if (!chrome.downloads) return null;
+  const { finds = [], picksExport: last = null } =
+    await chrome.storage.local.get(["finds", "picksExport"]);
+  const sweep = lastSweep || last?.lastSweep || null;
+  const { payload, signature } = buildPicksPayload(finds, cfg, { lastSweep: sweep });
+  if (!force && !shouldExport(signature, last)) return last;
+
+  const url = "data:application/json;charset=utf-8,"
+    + encodeURIComponent(JSON.stringify(payload, null, 2));
+  const id = await chrome.downloads.download({
+    url, filename: PICKS_FILENAME, conflictAction: "overwrite", saveAs: false,
+  });
+  await whenDownloaded(id);
+  await chrome.downloads.erase({ id }).catch(() => {});
+
+  const record = { signature, at: Date.now(), count: payload.count, lastSweep: sweep };
+  await chrome.storage.local.set({ picksExport: record });
+  return record;
+}
+
+/** Resolve when a download finishes (or after 15s, whichever is first). */
+function whenDownloaded(id) {
+  return new Promise((resolve) => {
+    const timer = setTimeout(done, 15000);
+    function done() {
+      clearTimeout(timer);
+      chrome.downloads.onChanged.removeListener(onChanged);
+      resolve();
+    }
+    function onChanged(delta) {
+      if (delta.id !== id) return;
+      const state = delta.state?.current;
+      if (state === "complete" || state === "interrupted") done();
+    }
+    chrome.downloads.onChanged.addListener(onChanged);
+  });
 }
 
 /**
@@ -204,7 +270,8 @@ async function saveDiagnostics(d) {
 
 async function recordDeal(deal, url, cfg) {
   const worthIt = deal.score >= (cfg.alertScore ?? 25)
-    && (!cfg.executableOnly || deal.executable);
+    && (!cfg.executableOnly || deal.executable)
+    && formatAllowed(deal, cfg);
   const { finds = [] } = await chrome.storage.local.get("finds");
 
   const key = deal.listing?.vin || url;
@@ -256,6 +323,7 @@ async function markSeen(url) {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const jitter = ([lo, hi] = [4000, 11000]) => lo + Math.random() * Math.max(0, hi - lo);
 const round = (n) => Math.round(n || 0).toLocaleString("en-US");
+const iso = (t) => (t ? new Date(t).toISOString() : null);
 const short = (u) => { try { return new URL(u).pathname.slice(0, 40); } catch { return u.slice(0, 40); } };
 
 async function setStatus(sweepStatus) { await chrome.storage.local.set({ sweepStatus }); }

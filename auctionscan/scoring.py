@@ -271,8 +271,13 @@ def score_listing(
     cfg: Config | None = None,
     transport_miles: int | None = None,
     vin_decode: VinDecode | None = None,
+    transport_cost: float | None = None,
 ) -> Deal:
-    """Score one listing. Returns a Deal with max_bid, gross and risk flags."""
+    """Score one listing. Returns a Deal with max_bid, gross and risk flags.
+
+    transport_cost, when given, is a real quote in dollars (most marketplaces
+    show one on the vehicle page) and wins over the per-mile estimate.
+    """
     cfg = cfg or Config()
     deal = Deal(
         listing=listing, valuation=valuation, history=history,
@@ -286,9 +291,15 @@ def score_listing(
 
     value, notes = adjusted_wholesale(listing, valuation, history)
     deal.reasoning.extend(notes)
+    deal.adjusted_value = value
 
     recon = recon_estimate(condition, cfg)
-    transport = cfg.costs.transport_cost(transport_miles)
+    transport = (
+        float(transport_cost) if transport_cost is not None
+        else cfg.costs.transport_cost(transport_miles)
+    )
+    deal.recon_cost = recon
+    deal.transport_cost = transport
 
     # Every book value assumes the car runs. If it doesn't, price the unknown
     # -- at YOUR repair cost where you have one.
@@ -325,6 +336,8 @@ def score_listing(
     deal.max_bid = best.max_bid
     deal.max_bid_optimistic = best.max_bid_optimistic
     deal.total_costs = best.total_costs
+    deal.exit_value = best.exit_value
+    deal.required_gross = best.required_gross
 
     bid = listing.current_bid or 0.0
     deal.projected_gross = best.exit_value - bid - best.total_costs
@@ -374,6 +387,7 @@ def score_listing(
         deal.risk_flags.append("AS-IS with an undiagnosed no-start: no arbitration")
 
     disqualifying = list(deal.risk_flags)
+    deal.disqualifiers = disqualifying
 
     # Advisory, not disqualifying on its own -- the INOP flag above already
     # gates the car. This tells you *why* the no-start is worth worrying about.

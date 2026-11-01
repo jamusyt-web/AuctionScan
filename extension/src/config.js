@@ -35,10 +35,23 @@ export const DEFAULT_CONFIG = {
   triageMinGap: 1500,         // rough value must beat asking by this to open
   alertScore: 25,             // notify at or above this score
   executableOnly: true,       // only alert on prices you can actually take
-  sweepIntervalMinutes: 30,
+  // Only these sale formats alert or get handed to Claude. Timed auctions with
+  // a hidden reserve aren't a price, so by default they're left out entirely.
+  formats: ["buy_now", "make_offer"],
+  sweepIntervalMinutes: 60,
   maxOpensPerSweep: 60,
   openDelayMs: [4000, 11000], // random pause between opens
   sweepEnabled: false,        // off until you turn it on
+
+  // Hand-off to the hourly Claude agent. After each sweep the extension saves
+  // its picks to Downloads/AuctionScan/picks.json; the agent reads that file,
+  // opens each pick and reads the condition report and photos properly.
+  exportPicks: true,
+  // A pick is a car whose quick score (flat recon, guessed transport) is
+  // under your max, or within this many dollars of it. Condition usually
+  // only makes a car worse, so anything further over isn't worth a read.
+  pickSlack: 1000,
+  picksMaxAgeHours: 48,
 };
 
 export async function loadConfig() {

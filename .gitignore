@@ -7,5 +7,7 @@ config.yaml
 *.local.yaml
 .env
 out/
+# Generated reports. The extension's own pages are source, not output.
 *.html
 !samples/*.html
+!extension/src/*.html

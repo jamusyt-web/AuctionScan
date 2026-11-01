@@ -16,6 +16,15 @@ is worth buying.
 4. **Tells you.** Desktop notification when something clears your bar, with the
    action: *buy now at $X*, *offer their published reserve*, *bid up to $Y*.
 
+5. **Hands off to the hourly agent.** After each sweep it saves its picks to
+   `Downloads/AuctionScan/picks.json`. A pick is a Buy Now or Make Offer car
+   that's under your max on the quick score, or within $1,000 of it. The
+   quick score can't see damage photos or a Carfax box, so the agent opens
+   each pick and reads it properly before anything reaches your phone.
+
+By default only **Buy Now** and **Make Offer** cars alert or get handed off;
+change that under Setup → Sale formats you buy.
+
 It never fetches anything on its own. Every page it reads was already delivered
 to your browser.
 
@@ -67,7 +76,7 @@ site actually uses — no markup knowledge required.
 node --test "extension/test/*.test.mjs"
 ```
 
-29 tests. `parity.test.mjs` asserts the JS engine produces the **same numbers**
+65 tests. `picks.test.mjs` covers what gets handed to the agent. `parity.test.mjs` asserts the JS engine produces the **same numbers**
 as the Python engine on the same cars — if the two ever diverge, the badge on
 the page would disagree with the CLI, and that test fails first.
 `extract.test.mjs` runs against text taken off a real ADESA vehicle page.

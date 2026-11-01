@@ -7,6 +7,9 @@
     python -m auctionscan scan --csv watchlist.csv --valuation csv
 
     python -m auctionscan vin 1FTFW1E85MFA12345
+
+    # Score cars the hourly agent has read (condition, history, AccuTrade)
+    python -m auctionscan score cars.json --config config.jamus.yaml
 """
 
 from __future__ import annotations
@@ -195,6 +198,45 @@ def cmd_grab(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_score(args: argparse.Namespace) -> int:
+    """Score cars the agent has read, print one JSON verdict per car."""
+    import json as _json
+
+    from .agent_io import load_cars, score_car
+
+    cfg = Config.load(args.config) if args.config else Config()
+    formats = tuple(f.strip() for f in args.formats.split(",") if f.strip())
+    try:
+        cars = load_cars(args.json)
+    except (OSError, ValueError) as exc:
+        print(f"Couldn't read {args.json}: {exc}", file=sys.stderr)
+        return 2
+
+    results = []
+    for i, car in enumerate(cars):
+        try:
+            results.append(score_car(car, cfg, formats))
+        except Exception as exc:  # noqa: BLE001 - one bad car must not sink the run
+            results.append({
+                "id": car.get("id") or car.get("url") or car.get("vin") or f"car {i + 1}",
+                "url": car.get("url"), "vin": car.get("vin"),
+                "verdict": "error", "action": f"Couldn't score: {exc}",
+            })
+
+    text = _json.dumps(results, indent=2)
+    if args.out:
+        Path(args.out).write_text(text + "\n", encoding="utf-8")
+        counts = {}
+        for r in results:
+            counts[r["verdict"]] = counts.get(r["verdict"], 0) + 1
+        summary = ", ".join(f"{n} {k}" for k, n in sorted(counts.items()))
+        print(f"Scored {len(results)} car(s): {summary}. Wrote {args.out}",
+              file=sys.stderr)
+    else:
+        print(text)
+    return 0
+
+
 def cmd_vin(args: argparse.Namespace) -> int:
     decoded = decode_vin(args.vin)
     if decoded.errors:
@@ -256,6 +298,15 @@ def main(argv: list[str] | None = None) -> int:
     grab.add_argument("--effort", choices=["low", "medium", "high", "xhigh", "max"],
                       default="high")
     grab.set_defaults(func=cmd_grab)
+
+    score = sub.add_parser(
+        "score", help="Score cars the hourly agent read (JSON in, JSON out)")
+    score.add_argument("json", type=Path, help="One car, a list, or {\"cars\": [...]}")
+    score.add_argument("--config", type=Path, help="YAML config (buy box + costs)")
+    score.add_argument("--formats", default="buy_now,make_offer",
+                       help="Sale formats you buy; others are passed")
+    score.add_argument("--out", type=Path, help="Write results here instead of stdout")
+    score.set_defaults(func=cmd_score)
 
     vin = sub.add_parser("vin", help="Decode a VIN via NHTSA vPIC")
     vin.add_argument("vin")

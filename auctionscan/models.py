@@ -205,6 +205,14 @@ class Deal:
     risk_flags: list[str] = field(default_factory=list)
     confidence: float = 0.0
     reasoning: list[str] = field(default_factory=list)
+    # The subset of risk_flags that zeroed the score: a buy-box miss, a hard
+    # announcement. An empty list with score 0 means "priced over your max".
+    disqualifiers: list[str] = field(default_factory=list)
+    adjusted_value: float = 0.0      # wholesale after history/grade haircuts
+    exit_value: float = 0.0          # what the winning exit sells it for
+    required_gross: float = 0.0      # the gross that exit has to clear
+    transport_cost: float = 0.0
+    recon_cost: float = 0.0          # recon base, before the exit's multiplier
 
     @property
     def headroom(self) -> float:

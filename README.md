@@ -15,6 +15,24 @@ SCORE  VEHICLE                               MILES       BID   MAX BID     ROOM 
    13  2020 Volkswagen Jetta GLI            43,700     9,200    10,920    1,720  0.15
 ```
 
+## The hourly agent
+
+Every hour from 7am to 10pm ET a scheduled Claude run picks up newly listed
+**Buy Now and Make Offer** cars from two feeds: your saved-search alert emails
+from ACV, OPENLANE and Manheim, and the extension's picks file. It opens the
+promising ones in your Chrome and reads them like a buyer: the condition
+report and photos, the AutoCheck/Carfax box, AccuTrade's MMR and target
+auction, the transport quote. Then it scores each car with this engine
+(`python -m auctionscan score`) and pings your phone when the price you can
+actually pay clears your gross. Every car it reads lands on the AuctionScan
+Finds dashboard, so nothing is checked or sent twice.
+
+- `agent/RUNBOOK.md` — exactly what each run does, and its ground rules
+  (read-only, never past a sign-in, at most 12 listing opens a run).
+- `agent/SETUP.md` — the four setup steps.
+- `auctionscan/agent_io.py` — the JSON the agent writes and the verdict it gets
+  back (buy / look / pass, with the move and a phone-ready message).
+
 ## The browser extension
 
 `extension/` is the part that does the looking. It triages search results for
@@ -325,7 +343,7 @@ photos, and scoring rules you can actually inspect and change.
 python -m pytest tests/ -q
 ```
 
-76 tests covering the money math, the buy-box rules, announcement handling,
+90 tests covering the money math, the agent's scoring path, the buy-box rules, announcement handling,
 powertrain reserve bracketing, capability arbitrage, exit selection, sale-format
 and acquisition-price handling, and the VIN decode. Network calls are stubbed,
 so they run offline. The powertrain suite is built on the real Model Y listing
@@ -346,7 +364,9 @@ auctionscan/
   sources/        Where listings come from (CSV, Manheim, ACV)
   enrich/         VIN decode, valuation, history
   ai/             Screenshot extraction + Claude condition analysis
-extension/        Chrome extension: sweep, triage, score, notify
+  agent_io.py     JSON in/out for the hourly agent's `score` command
+agent/            Hourly agent runbook and setup steps
+extension/        Chrome extension: sweep, triage, score, notify, hand off picks
 ```
 
 ## Status
